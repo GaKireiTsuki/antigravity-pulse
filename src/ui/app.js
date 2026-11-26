@@ -457,24 +457,78 @@ function renderSparkline(values, color = "var(--accent)") {
   `;
 }
 
-function renderHeatmap(days, metric, settings) {
-  if (!days || days.length === 0) return `<div class="empty-state">暂无历史用量数据</div>`;
+function getHeatmapMetricMeta(days, metric, settings) {
+  const palettePrefix = metric === "cost" ? "--heat-cost" : metric === "requests" ? "--heat-req" : "--heat";
+  const accentColor =
+    metric === "cost" ? "var(--green)" : metric === "requests" ? "var(--purple)" : "var(--accent)";
+  const metricLabel = metric === "cost" ? "折合费用" : metric === "requests" ? "请求次数" : "Token 消耗";
 
   const vals = days.map((d) => (metric === "cost" ? d.cost : metric === "requests" ? d.requests : d.tokens));
   const nonZero = vals.filter((v) => v > 0).sort((a, b) => a - b);
-  const q1 = nonZero[Math.floor(nonZero.length * 0.25)] || 0;
-  const q2 = nonZero[Math.floor(nonZero.length * 0.5)] || 0;
-  const q3 = nonZero[Math.floor(nonZero.length * 0.8)] || 0;
+  const n = nonZero.length;
+  const q1 = n ? nonZero[Math.floor((n - 1) * 0.25)] : 0;
+  const q2 = n ? nonZero[Math.floor((n - 1) * 0.5)] : 0;
+  const q3 = n ? nonZero[Math.floor((n - 1) * 0.85)] : 0;
+
+  let sum = 0;
+  let peakVal = 0;
+  let peakDate = "";
+  for (let i = 0; i < days.length; i++) {
+    const v = vals[i];
+    sum += v;
+    if (v > peakVal) {
+      peakVal = v;
+      peakDate = days[i].date;
+    }
+  }
+
+  const fmtVal = (v) =>
+    metric === "cost"
+      ? fmtCost(v, settings)
+      : metric === "requests"
+        ? `${fmtInt(v)} 次`
+        : fmtTokens(v, 2, settings);
 
   const levelOf = (v) => {
     if (v <= 0) return 0;
-    if (nonZero.length < 4) return v > 0 ? 4 : 0;
+    if (n < 4) return v >= peakVal ? 4 : v >= peakVal * 0.5 ? 3 : 2;
     if (v <= q1) return 1;
     if (v <= q2) return 2;
     if (v <= q3) return 3;
     return 4;
   };
 
+  const fillOf = (lvl) => (lvl === 0 ? "var(--heat-0)" : `var(${palettePrefix}-${lvl})`);
+
+  return {
+    metricLabel,
+    accentColor,
+    vals,
+    activeDays: n,
+    sumStr: fmtVal(sum),
+    peakStr: peakVal > 0 ? fmtVal(peakVal) : "--",
+    peakDateShort: peakDate ? peakDate.slice(5) : "",
+    levelOf,
+    fillOf,
+    buildTip(d) {
+      const tokLine = `Token: ${fmtTokens(d.tokens, 2, settings)}`;
+      const reqLine = `请求: ${fmtInt(d.requests)} 次`;
+      const costLine = `费用: ${fmtCost(d.cost, settings)}`;
+      const lines =
+        metric === "cost"
+          ? [`<strong style="color:var(--green)">${costLine}</strong>`, tokLine, reqLine]
+          : metric === "requests"
+            ? [`<strong style="color:var(--purple)">${reqLine}</strong>`, tokLine, costLine]
+            : [`<strong style="color:var(--accent)">${tokLine}</strong>`, reqLine, costLine];
+      return `<strong>${d.date}</strong><br/>${lines.join("<br/>")}<br/>缓存命中: ${d.cacheHitRate}%`;
+    },
+  };
+}
+
+function renderHeatmap(days, metric, settings) {
+  if (!days || days.length === 0) return `<div class="empty-state">暂无历史用量数据</div>`;
+
+  const hm = getHeatmapMetricMeta(days, metric, settings);
   const cell = 11;
   const gap = 3;
   const pitch = cell + gap;
@@ -493,13 +547,10 @@ function renderHeatmap(days, metric, settings) {
     const row = i % 7;
     const x = col * pitch + 2;
     const y = row * pitch + 2;
-    const v = vals[i];
-    const lvl = levelOf(v);
+    const lvl = hm.levelOf(hm.vals[i]);
+    const tip = esc(hm.buildTip(d));
 
-    const tip = esc(
-      `<strong>${d.date}</strong><br/>Token: ${fmtTokens(d.tokens, 2, settings)}<br/>请求: ${fmtInt(d.requests)} 次<br/>缓存命中: ${d.cacheHitRate}%<br/>费用: ${fmtCost(d.cost, settings)}`
-    );
-    rects += `<rect class="heat-cell" x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2.5" fill="var(--heat-${lvl})" data-tip="${tip}"></rect>`;
+    rects += `<rect class="heat-cell" data-day-idx="${i}" x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2.5" style="fill:${hm.fillOf(lvl)}" data-tip="${tip}"></rect>`;
 
     if (row === 0) {
       const mKey = d.date.slice(0, 7);
@@ -522,18 +573,80 @@ function renderHeatmap(days, metric, settings) {
       </svg>
     </div>
     <div class="heatmap-legend">
-      <span>过去 53 周按日分布（右侧为最新日期）</span>
-      <span class="heat-scale">
+      <span class="heatmap-summary num" id="heatmap-summary">
+        <span class="heatmap-metric-pill"><i class="model-dot" style="background:${hm.accentColor}"></i>${hm.metricLabel}</span>
+        <span>活跃 <strong>${hm.activeDays}</strong> 天</span>
+        <span>合计 <strong>${esc(hm.sumStr)}</strong></span>
+        ${hm.peakDateShort ? `<span>峰值 <strong>${esc(hm.peakStr)}</strong> (${hm.peakDateShort})</span>` : ""}
+      </span>
+      <span class="heat-scale num" id="heatmap-scale">
         <span>少</span>
-        <i class="heat-swatch" style="background:var(--heat-0)"></i>
-        <i class="heat-swatch" style="background:var(--heat-1)"></i>
-        <i class="heat-swatch" style="background:var(--heat-2)"></i>
-        <i class="heat-swatch" style="background:var(--heat-3)"></i>
-        <i class="heat-swatch" style="background:var(--heat-4)"></i>
-        <span>多</span>
+        <i class="heat-swatch" data-swatch="0" style="background:${hm.fillOf(0)}"></i>
+        <i class="heat-swatch" data-swatch="1" style="background:${hm.fillOf(1)}"></i>
+        <i class="heat-swatch" data-swatch="2" style="background:${hm.fillOf(2)}"></i>
+        <i class="heat-swatch" data-swatch="3" style="background:${hm.fillOf(3)}"></i>
+        <i class="heat-swatch" data-swatch="4" style="background:${hm.fillOf(4)}"></i>
+        <span id="heatmap-scale-max">多${hm.peakDateShort ? ` (${esc(hm.peakStr)})` : ""}</span>
       </span>
     </div>
   `;
+}
+
+function updateHeatmapInPlace(metric) {
+  const snap = state.snapshot;
+  const days = snap?.heatmap;
+  const wrap = document.getElementById("heatmap-scroll");
+  if (!days || !wrap) {
+    render({ animate: false });
+    return;
+  }
+  const hm = getHeatmapMetricMeta(days, metric, snap.settings);
+
+  // 1. Update segmented toggle buttons + glide slider smoothly
+  const seg = document.querySelector('[data-slider-key="heatmap-metric"]');
+  if (seg) {
+    seg.querySelectorAll(".seg-btn").forEach((b) => {
+      b.classList.toggle("active", b.getAttribute("data-val") === metric);
+    });
+    const activeBtn = seg.querySelector(".seg-btn.active");
+    const slider = seg.querySelector(".seg-slider");
+    if (activeBtn && slider) {
+      slider.style.transition = "";
+      slider.style.width = `${activeBtn.offsetWidth}px`;
+      slider.style.transform = `translateX(${activeBtn.offsetLeft}px)`;
+      state.sliderState.set("heatmap-metric", { x: activeBtn.offsetLeft, w: activeBtn.offsetWidth });
+    }
+  }
+
+  // 2. Smoothly morph every SVG heatmap cell color & tooltip in-place
+  wrap.querySelectorAll(".heat-cell").forEach((rect) => {
+    const idx = Number(rect.getAttribute("data-day-idx"));
+    const d = days[idx];
+    if (!d) return;
+    const lvl = hm.levelOf(hm.vals[idx]);
+    rect.style.fill = hm.fillOf(lvl);
+    rect.setAttribute("data-tip", hm.buildTip(d));
+  });
+
+  // 3. Update legend summary & swatch palette smoothly in-place
+  const sumEl = document.getElementById("heatmap-summary");
+  if (sumEl) {
+    sumEl.innerHTML = `
+      <span class="heatmap-metric-pill"><i class="model-dot" style="background:${hm.accentColor}"></i>${hm.metricLabel}</span>
+      <span>活跃 <strong>${hm.activeDays}</strong> 天</span>
+      <span>合计 <strong>${esc(hm.sumStr)}</strong></span>
+      ${hm.peakDateShort ? `<span>峰值 <strong>${esc(hm.peakStr)}</strong> (${hm.peakDateShort})</span>` : ""}
+    `;
+  }
+  const scaleEl = document.getElementById("heatmap-scale");
+  if (scaleEl) {
+    scaleEl.querySelectorAll("[data-swatch]").forEach((sw) => {
+      const lvl = Number(sw.getAttribute("data-swatch"));
+      sw.style.background = hm.fillOf(lvl);
+    });
+    const maxEl = document.getElementById("heatmap-scale-max");
+    if (maxEl) maxEl.textContent = `多${hm.peakDateShort ? ` (${hm.peakStr})` : ""}`;
+  }
 }
 
 function polar(cx, cy, radius, angle) {
@@ -2237,8 +2350,9 @@ function initEvents() {
       const labels = { dual: "双显 ($ / ¥)", usd: "仅美元 (USD)", cny: "仅人民币 (CNY)" };
       await saveSettings({ currency: next }, `币种切换为 ${labels[next]}`);
     } else if (action === "heat-metric") {
+      if (state.heatmapMetric === val) return;
       state.heatmapMetric = val;
-      render({ animate: false });
+      updateHeatmapInPlace(val);
     } else if (action === "quota-scope") {
       state.quotaScope = val;
       render({ animate: false });
