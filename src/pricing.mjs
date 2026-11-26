@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS = {
     planName: "Google AI Ultra",
     tierBadge: "Ultra · 5x",
     monthlyUsd: 99,
+    cycleQuotaUsd: 1600,
     billingDay: 1,
   },
   pollIntervalMs: 2500, // 0 = manual only

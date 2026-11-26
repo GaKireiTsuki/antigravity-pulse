@@ -145,6 +145,12 @@ function fmtTime(tsMs) {
   return `${mo}-${da} ${hh}:${mm}:${ss}`;
 }
 
+function fmtDateShort(tsMs) {
+  if (!tsMs) return "--";
+  const d = new Date(tsMs);
+  return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function fmtTimeShort(tsMs) {
   if (!tsMs) return "--";
   const d = new Date(tsMs);
@@ -719,9 +725,9 @@ function renderMonitorContent(snap, compactMode) {
 
   const renderWindowRow = (title, w, isClaude = false) => {
     const fillCls =
-      w.pct >= 90 ? "danger" : w.pct >= 70 ? "warn" : isClaude ? "claude" : "";
-    const metricText = `${fmtTokens(w.tokens, 1, s)} (${fmtCost(w.costUsd, s)})`;
-    const rightText = `${fmtResetIn(w.resetInMs)} · 占预算 ${w.pct}%`;
+      w.remainingPct <= 10 ? "danger" : w.remainingPct <= 30 ? "warn" : isClaude ? "claude" : "roi";
+    const metricText = `剩 ${fmtCost(w.remainingUsd, s)} / ${fmtCost(w.budgetUsd, s)}`;
+    const rightText = `${fmtResetIn(w.resetInMs)} · 剩 ${w.remainingPct}%`;
     return `
       <div>
         <div class="window-row-head">
@@ -732,7 +738,7 @@ function renderMonitorContent(snap, compactMode) {
           <div class="window-right num">${esc(rightText)}</div>
         </div>
         <div class="bar-track">
-          <div class="bar-fill ${fillCls}" style="width:${Math.max(w.tokens > 0 ? 2 : 0, w.pct)}%"></div>
+          <div class="bar-fill ${fillCls}" style="width:${Math.max(w.remainingPct > 0 ? 2 : 0, w.remainingPct)}%"></div>
         </div>
       </div>
     `;
@@ -754,12 +760,12 @@ function renderMonitorContent(snap, compactMode) {
     ? `
       <div class="roi-banner">
         <div style="min-width:0">
-          <div style="font-size:12px;color:var(--fg-secondary);font-weight:500">${esc(sub.planName)} (${fmtUsd(sub.monthlyUsd, 0)}/月) 回本进度</div>
+          <div style="font-size:12px;color:var(--fg-secondary);font-weight:500">${esc(sub.planName)} · 本周期剩 ${esc(fmtCost(sub.cycleRemainingUsd, s))} (${sub.cycleRemainingPct}%)</div>
           <div style="font-size:11.5px;color:var(--fg-muted);margin-top:2px">
-            等价 API ${fmtCost(sub.refCostUsd, s)} ${fmtCostSub(sub.refCostUsd, s)} · 净省 ${fmtCost(Math.max(0, sub.netSavedUsd), s)} · 折合 ${((sub.effectiveDiscountPct || 0) / 10).toFixed(1)} 折
+            距续费 ${sub.cycleRemainingDays} 天 · 已回本 ${sub.roiMultiplier}x · 净省 ${fmtCost(Math.max(0, sub.netSavedUsd), s)}
           </div>
         </div>
-        <div class="roi-big num">${sub.roiMultiplier}x</div>
+        <div class="roi-big num">${sub.cycleRemainingPct}%</div>
       </div>
     `
     : "";
@@ -887,6 +893,106 @@ function renderOverviewTab(snap) {
       </div>
     </div>
   `;
+
+  // Subscription Cycle Remaining Quota Card (Overview first screen)
+  const rw = snap.rollingWindows || {};
+  let subQuotaCard = "";
+  if (sub?.enabled) {
+    const remPct = sub.cycleRemainingPct ?? 0;
+    const tone = remPct <= 15 ? "err" : remPct <= 35 ? "warn" : "ok";
+    const barCls = remPct <= 15 ? "danger" : remPct <= 35 ? "warn" : "roi";
+    const timeRemainPct = Math.max(0, Math.min(100, Number((100 - (sub.cycleTimePct || 0)).toFixed(1))));
+    const runwayText =
+      sub.cycleExceededUsd > 0
+        ? `已超出参考上限 ${fmtCost(sub.cycleExceededUsd, s)}`
+        : sub.runwayDays !== null
+          ? `按活跃日均 ${fmtCost(sub.dailyBurnUsd, s)} 预计续航 ${sub.runwayDays} 天`
+          : "本周期暂无消耗";
+
+    const poolItems = [
+      { label: "5h Gemini", w: rw.gemini5h, isClaude: false },
+      { label: "7天 Gemini", w: rw.gemini7d, isClaude: false },
+      { label: "5h Claude", w: rw.claude5h, isClaude: true },
+      { label: "7天 Claude", w: rw.claude7d, isClaude: true },
+    ]
+      .filter((p) => p.w)
+      .map((p) => {
+        const w = p.w;
+        const pBarCls =
+          w.remainingPct <= 15 ? "danger" : w.remainingPct <= 35 ? "warn" : p.isClaude ? "claude" : "";
+        const tip = esc(
+          `<strong>${p.label} 滚动窗口</strong><br/>已用: ${fmtCost(w.costUsd, s)} (${fmtTokens(w.tokens, 1, s)})<br/>剩余参考额度: ${fmtCost(w.remainingUsd, s)} / ${fmtCost(w.budgetUsd, s)} (${w.remainingPct}%)<br/>${fmtResetIn(w.resetInMs)}`
+        );
+        return `
+          <div class="quota-pool-item" data-tip="${tip}">
+            <div class="quota-pool-top">
+              <span class="quota-pool-label">${p.label}</span>
+              <span class="quota-pool-val num">剩 ${esc(fmtCost(w.remainingUsd, s, 0))} <span style="color:var(--fg-muted);font-weight:500">(${w.remainingPct}%)</span></span>
+            </div>
+            <div class="bar-track">
+              <div class="bar-fill ${pBarCls}" style="width:${Math.max(w.remainingPct > 0 ? 2 : 0, w.remainingPct)}%"></div>
+            </div>
+            <div class="quota-pool-sub num">
+              <span>已用 ${fmtTokens(w.tokens, 1, s)}</span>
+              <span>${fmtResetIn(w.resetInMs)}</span>
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+
+    const barTip = esc(
+      `<strong>本订阅周期 (${fmtDateShort(sub.cycleStartMs)} ~ ${fmtDateShort(sub.cycleEndMs)})</strong><br/>剩余参考额度: ${fmtCost(sub.cycleRemainingUsd, s)} (${remPct}%)<br/>本周期已用: ${fmtCost(sub.cycleUsedUsd, s)} / ${fmtCost(sub.cycleQuotaUsd, s)}<br/>周期剩余时间: ${sub.cycleRemainingDays} / ${sub.cycleTotalDays} 天 (剩 ${timeRemainPct}%)`
+    );
+
+    const officialHint = (snap.quotaHints || []).length
+      ? `<div style="margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11.5px;color:var(--fg-muted)">
+          <span>日志捕获官方配额提示：</span>
+          ${snap.quotaHints
+            .map(
+              (q) =>
+                `<span class="badge warn">${esc(q.modelLabel)} 剩余 ${q.remainingPct}% (${esc(fmtTimeShort(Date.parse(q.resetsAt)))} 重置)</span>`
+            )
+            .join("")}
+        </div>`
+      : "";
+
+    subQuotaCard = `
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">
+            ${icon("gauge", "sm muted")}
+            <span>订阅期剩余额度</span>
+            <span class="badge info">${esc(sub.planName)}</span>
+            <span class="badge neutral num">${fmtDateShort(sub.cycleStartMs)} ~ ${fmtDateShort(sub.cycleEndMs)} · 剩 ${sub.cycleRemainingDays} 天</span>
+          </div>
+          <button class="btn sm" data-action="set-tab" data-val="pricing">调整额度</button>
+        </div>
+
+        <div class="quota-hero">
+          <div class="quota-hero-main">
+            <span class="quota-remain-val ${tone} num">${esc(fmtCost(sub.cycleRemainingUsd, s))}</span>
+            ${fmtCostSub(sub.cycleRemainingUsd, s) ? `<span class="kpi-sub-val num">${esc(fmtCostSub(sub.cycleRemainingUsd, s))}</span>` : ""}
+            <span class="badge ${tone} num">剩余 ${remPct}%</span>
+          </div>
+          <div class="quota-hero-meta num">
+            <span>本周期已用 <strong>${esc(fmtCost(sub.cycleUsedUsd, s))}</strong> / ${esc(fmtCost(sub.cycleQuotaUsd, s))}</span>
+            <span>${esc(runwayText)}</span>
+          </div>
+        </div>
+
+        <div class="quota-bar-wrap" data-tip="${barTip}">
+          <div class="quota-bar-track">
+            <div class="bar-fill ${barCls}" style="width:${Math.max(remPct > 0 ? 1.5 : 0, remPct)}%"></div>
+          </div>
+          <div class="quota-bar-marker" style="left:${timeRemainPct}%" title="剩余时间进度 ${timeRemainPct}%"></div>
+        </div>
+
+        <div class="quota-pools-grid">${poolItems}</div>
+        ${officialHint}
+      </div>
+    `;
+  }
 
   const heatmapCard = `
     <div class="card">
@@ -1037,7 +1143,7 @@ function renderOverviewTab(snap) {
     </div>
   `;
 
-  return `${kpiHtml}${heatmapCard}${healthCard}${donutCard}${modelTableCard}`;
+  return `${kpiHtml}${subQuotaCard}${heatmapCard}${healthCard}${donutCard}${modelTableCard}`;
 }
 
 function renderTasksTab(snap) {
@@ -1370,6 +1476,10 @@ function renderPricingTab(snap) {
           <div class="field">
             <label>月费 (USD)</label>
             <input class="text-input num" id="sub-monthly-usd" type="number" step="1" value="${sub.monthlyUsd ?? 99}" />
+          </div>
+          <div class="field">
+            <label>周期参考总额度 (USD)</label>
+            <input class="text-input num" id="sub-cycle-quota" type="number" step="50" value="${sub.cycleQuotaUsd ?? 1600}" />
           </div>
           <div class="field">
             <label>USD → CNY 参考汇率</label>
@@ -1957,6 +2067,7 @@ function initEvents() {
           planName: document.getElementById("sub-plan-name")?.value || "Google AI Ultra",
           tierBadge: document.getElementById("sub-tier-badge")?.value || "Ultra · 5x",
           monthlyUsd: Number(document.getElementById("sub-monthly-usd")?.value) || 99,
+          cycleQuotaUsd: Number(document.getElementById("sub-cycle-quota")?.value) || 1600,
           billingDay: Number(document.getElementById("sub-billing-day")?.value) || 1,
         },
         customPricing,

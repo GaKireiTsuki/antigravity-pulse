@@ -44,17 +44,27 @@ function startOfLocalDay(tsMs) {
   return d.getTime();
 }
 
-function startOfBillingCycle(nowMs, billingDay = 1) {
-  const d = new Date(nowMs);
+function getBillingCycleBounds(nowMs, billingDay = 1) {
   const clamped = Math.max(1, Math.min(28, Number(billingDay) || 1));
-  if (d.getDate() >= clamped) {
-    d.setDate(clamped);
+  const start = new Date(nowMs);
+  if (start.getDate() >= clamped) {
+    start.setDate(clamped);
   } else {
-    d.setMonth(d.getMonth() - 1);
-    d.setDate(clamped);
+    start.setMonth(start.getMonth() - 1);
+    start.setDate(clamped);
   }
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start.getTime());
+  end.setMonth(end.getMonth() + 1);
+  end.setDate(clamped);
+  end.setHours(0, 0, 0, 0);
+
+  return { startMs: start.getTime(), endMs: end.getTime() };
+}
+
+function startOfBillingCycle(nowMs, billingDay = 1) {
+  return getBillingCycleBounds(nowMs, billingDay).startMs;
 }
 
 function parseQuotaNotice(text, tsMs) {
@@ -676,7 +686,9 @@ export class PulseStore {
 
     const nowMs = Date.now();
     const rangeStartMs = this._getRangeStartMs(range, nowMs);
-    const cycleStartMs = startOfBillingCycle(nowMs, this.settings.subscription?.billingDay || 1);
+    const cycleBounds = getBillingCycleBounds(nowMs, this.settings.subscription?.billingDay || 1);
+    const cycleStartMs = cycleBounds.startMs;
+    const cycleEndMs = cycleBounds.endMs;
     const { all, allQuotaHints } = this._getAllEnrichedSteps();
 
     // 1. Heatmap (always full 53-week history across all models or selected model)
@@ -696,6 +708,8 @@ export class PulseStore {
     };
 
     let cycleCostUsd = 0;
+    let cycleTokens = 0;
+    let cycleActiveDays = new Set();
     let allTimeCostUsd = 0;
     const convTotals = new Map();
 
@@ -704,7 +718,11 @@ export class PulseStore {
     for (const s of all) {
       const tok = s.inputTokens + s.cacheReadTokens + s.outputTokens;
       allTimeCostUsd += s.costUsd;
-      if (s.tsMs >= cycleStartMs) cycleCostUsd += s.costUsd;
+      if (s.tsMs >= cycleStartMs && s.tsMs < cycleEndMs) {
+        cycleCostUsd += s.costUsd;
+        cycleTokens += tok;
+        cycleActiveDays.add(s.dayKey);
+      }
 
       // Track per-conversation totals for switcher & latest session detection
       let ct = convTotals.get(s.cid);
@@ -1002,25 +1020,42 @@ export class PulseStore {
       const resetAt = w.oldestTs ? w.oldestTs + durationMs : null;
       const resetInMs = resetAt ? Math.max(0, resetAt - nowMs) : null;
       const pct = w.budgetUsd > 0 ? Math.min(100, Number(((w.costUsd / w.budgetUsd) * 100).toFixed(1))) : 0;
+      const remainingUsd = Math.max(0, Number((w.budgetUsd - w.costUsd).toFixed(2)));
+      const remainingPct = w.budgetUsd > 0 ? Math.max(0, Number((100 - (w.costUsd / w.budgetUsd) * 100).toFixed(1))) : 0;
       return {
         tokens: w.tokens,
         costUsd: Number(w.costUsd.toFixed(2)),
         requests: w.requests,
         budgetUsd: w.budgetUsd,
         pct,
+        remainingUsd,
+        remainingPct,
         resetInMs,
         resetAt,
       };
     };
 
-    // Subscription ROI metrics
+    // Subscription ROI & billing-cycle remaining quota metrics
     const subCfg = this.settings.subscription || DEFAULT_SETTINGS.subscription;
     const refCostUsd = range === "all" ? allTimeCostUsd : range === "cycle" ? cycleCostUsd : totalCostUsd;
     const monthlyUsd = Math.max(0.01, Number(subCfg.monthlyUsd || 99));
+    const cycleQuotaUsd = Math.max(1, Number(subCfg.cycleQuotaUsd || 1600));
     const roiMultiplier = Number((refCostUsd / monthlyUsd).toFixed(2));
     const netSavedUsd = Number((refCostUsd - monthlyUsd).toFixed(2));
     const effectiveDiscountPct = refCostUsd > 0 ? Number(((monthlyUsd / refCostUsd) * 100).toFixed(1)) : 100;
     const actualPerMillionUsd = totalTokens > 0 ? Number(((monthlyUsd / (totalTokens / 1e6))).toFixed(3)) : 0;
+
+    const cycleRemainingUsd = Math.max(0, Number((cycleQuotaUsd - cycleCostUsd).toFixed(2)));
+    const cycleExceededUsd = Math.max(0, Number((cycleCostUsd - cycleQuotaUsd).toFixed(2)));
+    const cycleUsedPct = Math.min(100, Number(((cycleCostUsd / cycleQuotaUsd) * 100).toFixed(1)));
+    const cycleRemainingPct = Math.max(0, Number((100 - (cycleCostUsd / cycleQuotaUsd) * 100).toFixed(1)));
+    const cycleTotalDays = Math.max(1, Math.round((cycleEndMs - cycleStartMs) / 86400000));
+    const cycleElapsedDays = Math.max(1, Math.min(cycleTotalDays, Math.ceil((nowMs - cycleStartMs) / 86400000)));
+    const cycleRemainingDays = Math.max(0, Math.ceil((cycleEndMs - nowMs) / 86400000));
+    const cycleTimePct = Math.min(100, Number((((nowMs - cycleStartMs) / Math.max(1, cycleEndMs - cycleStartMs)) * 100).toFixed(1)));
+    const activeDayDenom = Math.max(1, cycleActiveDays.size);
+    const dailyBurnUsd = Number((cycleCostUsd / activeDayDenom).toFixed(2));
+    const runwayDays = dailyBurnUsd > 0 ? Number((cycleRemainingUsd / dailyBurnUsd).toFixed(1)) : null;
 
     // Recent sessions sorted by last activity
     const recentSessions = [...convTotals.values()]
@@ -1135,6 +1170,22 @@ export class PulseStore {
       },
       subscription: {
         ...subCfg,
+        cycleQuotaUsd,
+        cycleStartMs,
+        cycleEndMs,
+        cycleTotalDays,
+        cycleElapsedDays,
+        cycleRemainingDays,
+        cycleTimePct,
+        cycleUsedUsd: Number(cycleCostUsd.toFixed(2)),
+        cycleUsedTokens: cycleTokens,
+        cycleActiveDays: cycleActiveDays.size,
+        cycleRemainingUsd,
+        cycleExceededUsd,
+        cycleUsedPct,
+        cycleRemainingPct,
+        dailyBurnUsd,
+        runwayDays,
         refCostUsd: Number(refCostUsd.toFixed(2)),
         roiMultiplier,
         netSavedUsd,

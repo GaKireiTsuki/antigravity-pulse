@@ -1207,6 +1207,101 @@ button {
   color: var(--green);
 }
 
+/* Subscription Cycle Remaining Quota Card (Overview) */
+.quota-hero {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.quota-hero-main {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+.quota-remain-val {
+  font-size: clamp(22px, 2.5vw, 28px);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  color: var(--fg-primary);
+}
+.quota-remain-val.ok { color: var(--green); }
+.quota-remain-val.warn { color: var(--amber); }
+.quota-remain-val.err { color: var(--red); }
+.quota-hero-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12px;
+  color: var(--fg-secondary);
+}
+.quota-bar-wrap {
+  position: relative;
+  margin-bottom: 12px;
+}
+.quota-bar-track {
+  width: 100%;
+  height: 9px;
+  border-radius: var(--r-pill);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+.quota-bar-marker {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--fg-primary);
+  opacity: 0.45;
+  pointer-events: none;
+}
+.quota-pools-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 820px) {
+  .quota-pools-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 420px) {
+  .quota-pools-grid { grid-template-columns: 1fr; }
+}
+.quota-pool-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.quota-pool-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11.5px;
+}
+.quota-pool-label {
+  font-weight: 600;
+  color: var(--fg-secondary);
+  white-space: nowrap;
+}
+.quota-pool-val {
+  color: var(--fg-primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.quota-pool-sub {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--fg-muted);
+}
+
 /* Task Tree (Zero-overflow responsive) */
 .task-card {
   border: 1px solid var(--border-subtle);
