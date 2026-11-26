@@ -122,6 +122,28 @@ function fmtDuration(ms) {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function fmtResetCountdown(w) {
+  if (!w) return "窗口空闲";
+  if (w.resetInMs === null || w.resetInMs === undefined) {
+    return w.lastResetAt ? `已于 ${fmtTimeShort(w.lastResetAt)} 重置` : "窗口空闲";
+  }
+  if (w.resetInMs <= 0) return "即将重置";
+  const mins = Math.floor(w.resetInMs / 60000);
+  const d = Math.floor(mins / 1440);
+  const h = Math.floor((mins % 1440) / 60);
+  const m = mins % 60;
+  if (d > 0) return `${d}天 ${h}小时后重置`;
+  if (h > 0) return `${h}小时 ${m}分后重置`;
+  return `${Math.max(1, m)}分钟后重置`;
+}
+
+function quotaSourceTag(src) {
+  if (src === "anchor") return "锚点反推";
+  if (src === "estimated") return "自动推算";
+  if (src === "manual") return "手动设定";
+  return "默认参考";
+}
+
 function fmtResetIn(ms) {
   if (ms === null || ms === undefined) return "窗口空闲";
   if (ms <= 0) return "即将滑出";
@@ -784,10 +806,23 @@ function renderMonitorContent(snap, compactMode) {
   }
 
   const renderWindowRow = (title, w, isClaude = false) => {
-    const fillCls =
-      w.remainingPct <= 10 ? "danger" : w.remainingPct <= 30 ? "warn" : isClaude ? "claude" : "roi";
-    const metricText = `剩 ${fmtCost(w.remainingUsd, s)} / ${fmtCost(w.budgetUsd, s)}`;
-    const rightText = `${fmtResetIn(w.resetInMs)} · 剩 ${w.remainingPct}%`;
+    const isOver = w.exceededUsd > 0;
+    const fillCls = isOver
+      ? "danger"
+      : w.remainingPct <= 15
+        ? "danger"
+        : w.remainingPct <= 35
+          ? "warn"
+          : isClaude
+            ? "claude"
+            : "roi";
+    const fillPct = isOver ? 100 : Math.max(w.remainingPct > 0 ? 2 : 0, w.remainingPct);
+    const metricText = isOver
+      ? `已用 ${fmtCost(w.costUsd, s)} / 参考 ${fmtCost(w.budgetUsd, s)}`
+      : `剩 ${fmtCost(w.remainingUsd, s)} / ${fmtCost(w.budgetUsd, s)}`;
+    const rightText = isOver
+      ? `超参考 +${fmtCost(w.exceededUsd, s)} · ${fmtResetCountdown(w)}`
+      : `${fmtResetCountdown(w)} · 剩 ${w.remainingPct}%`;
     return `
       <div>
         <div class="window-row-head">
@@ -798,23 +833,28 @@ function renderMonitorContent(snap, compactMode) {
           <div class="window-right num">${esc(rightText)}</div>
         </div>
         <div class="bar-track">
-          <div class="bar-fill ${fillCls}" style="width:${Math.max(w.remainingPct > 0 ? 2 : 0, w.remainingPct)}%"></div>
+          <div class="bar-fill ${fillCls}" style="width:${fillPct}%"></div>
         </div>
       </div>
     `;
   };
 
+  const cal = snap.quotaCalibration;
   const quotaHintsHtml = (snap.quotaHints || []).length
     ? `<div class="note-box">
-        <strong>日志捕获的近期官方配额提示：</strong>
+        <strong>当前生效的官方低配额提示：</strong>
         ${snap.quotaHints
           .map(
             (q) =>
-              `<span class="badge warn" style="margin-left:4px;margin-top:4px">${esc(q.modelLabel)} 剩余 ${q.remainingPct}% (${esc(fmtTimeShort(Date.parse(q.resetsAt)))} 重置)</span>`
+              `<span class="badge warn" style="margin-left:4px;margin-top:4px">${esc(q.modelLabel)} 剩余 ${q.remainingPct}% (${esc(fmtTimeShort(q.resetsAtMs))} 重置)</span>`
           )
           .join("")}
       </div>`
-    : "";
+    : cal?.totalAnchors > 0
+      ? `<div class="note-box">
+          已由 ${cal.totalAnchors} 条历史官方配额锚点自动校准：Gemini 5h ≈ ${fmtCost(cal.gemini5hCapUsd, s, 0)} · 7天周限 ≈ ${fmtCost(cal.gemini7dCapUsd, s, 0)}${cal.lastGeminiResetAt ? `（上轮已于 ${fmtTimeShort(cal.lastGeminiResetAt)} 重置）` : ""}
+        </div>`
+      : "";
 
   const roiHtml = sub?.enabled
     ? `
@@ -956,18 +996,19 @@ function renderOverviewTab(snap) {
 
   // Subscription Cycle Remaining Quota Card (Overview first screen)
   const rw = snap.rollingWindows || {};
+  const cal = snap.quotaCalibration;
   let subQuotaCard = "";
   if (sub?.enabled) {
     const remPct = sub.cycleRemainingPct ?? 0;
-    const tone = remPct <= 15 ? "err" : remPct <= 35 ? "warn" : "ok";
-    const barCls = remPct <= 15 ? "danger" : remPct <= 35 ? "warn" : "roi";
+    const isCycleOver = sub.cycleExceededUsd > 0;
+    const tone = isCycleOver || remPct <= 15 ? "err" : remPct <= 35 ? "warn" : "ok";
+    const barCls = isCycleOver || remPct <= 15 ? "danger" : remPct <= 35 ? "warn" : "roi";
     const timeRemainPct = Math.max(0, Math.min(100, Number((100 - (sub.cycleTimePct || 0)).toFixed(1))));
-    const runwayText =
-      sub.cycleExceededUsd > 0
-        ? `已超出参考上限 ${fmtCost(sub.cycleExceededUsd, s)}`
-        : sub.runwayDays !== null
-          ? `按活跃日均 ${fmtCost(sub.dailyBurnUsd, s)} 预计续航 ${sub.runwayDays} 天`
-          : "本周期暂无消耗";
+    const runwayText = isCycleOver
+      ? `已超出参考上限 ${fmtCost(sub.cycleExceededUsd, s)}`
+      : sub.runwayDays !== null
+        ? `按活跃日均 ${fmtCost(sub.dailyBurnUsd, s)} 预计续航 ${sub.runwayDays} 天`
+        : "本周期暂无消耗";
 
     const poolItems = [
       { label: "5h Gemini", w: rw.gemini5h, isClaude: false },
@@ -978,23 +1019,35 @@ function renderOverviewTab(snap) {
       .filter((p) => p.w)
       .map((p) => {
         const w = p.w;
-        const pBarCls =
-          w.remainingPct <= 15 ? "danger" : w.remainingPct <= 35 ? "warn" : p.isClaude ? "claude" : "";
+        const isOver = w.exceededUsd > 0;
+        const pBarCls = isOver
+          ? "danger"
+          : w.remainingPct <= 15
+            ? "danger"
+            : w.remainingPct <= 35
+              ? "warn"
+              : p.isClaude
+                ? "claude"
+                : "";
+        const fillPct = isOver ? 100 : Math.max(w.remainingPct > 0 ? 2 : 0, w.remainingPct);
+        const valText = isOver
+          ? `<span style="color:var(--red)">超参考 +${esc(fmtCost(w.exceededUsd, s, 0))}</span>`
+          : `剩 ${esc(fmtCost(w.remainingUsd, s, 0))} <span style="color:var(--fg-muted);font-weight:500">(${w.remainingPct}%)</span>`;
         const tip = esc(
-          `<strong>${p.label} 滚动窗口</strong><br/>已用: ${fmtCost(w.costUsd, s)} (${fmtTokens(w.tokens, 1, s)})<br/>剩余参考额度: ${fmtCost(w.remainingUsd, s)} / ${fmtCost(w.budgetUsd, s)} (${w.remainingPct}%)<br/>${fmtResetIn(w.resetInMs)}`
+          `<strong>${p.label}（${quotaSourceTag(w.source)}）</strong><br/>本轮已用: ${fmtCost(w.costUsd, s)} (${fmtTokens(w.tokens, 1, s)})<br/>推算满池: ${fmtCost(w.budgetUsd, s)}<br/>${isOver ? `超出参考: +${fmtCost(w.exceededUsd, s)}` : `剩余可用: ${fmtCost(w.remainingUsd, s)} (${w.remainingPct}%)`}<br/>${fmtResetCountdown(w)}`
         );
         return `
           <div class="quota-pool-item" data-tip="${tip}">
             <div class="quota-pool-top">
               <span class="quota-pool-label">${p.label}</span>
-              <span class="quota-pool-val num">剩 ${esc(fmtCost(w.remainingUsd, s, 0))} <span style="color:var(--fg-muted);font-weight:500">(${w.remainingPct}%)</span></span>
+              <span class="quota-pool-val num">${valText}</span>
             </div>
             <div class="bar-track">
-              <div class="bar-fill ${pBarCls}" style="width:${Math.max(w.remainingPct > 0 ? 2 : 0, w.remainingPct)}%"></div>
+              <div class="bar-fill ${pBarCls}" style="width:${fillPct}%"></div>
             </div>
             <div class="quota-pool-sub num">
-              <span>已用 ${fmtTokens(w.tokens, 1, s)}</span>
-              <span>${fmtResetIn(w.resetInMs)}</span>
+              <span>已用 ${fmtTokens(w.tokens, 1, s)} / ${esc(fmtCost(w.budgetUsd, s, 0))}</span>
+              <span>${esc(fmtResetCountdown(w))}</span>
             </div>
           </div>
         `;
@@ -1002,20 +1055,29 @@ function renderOverviewTab(snap) {
       .join("");
 
     const barTip = esc(
-      `<strong>本订阅周期 (${fmtDateShort(sub.cycleStartMs)} ~ ${fmtDateShort(sub.cycleEndMs)})</strong><br/>剩余参考额度: ${fmtCost(sub.cycleRemainingUsd, s)} (${remPct}%)<br/>本周期已用: ${fmtCost(sub.cycleUsedUsd, s)} / ${fmtCost(sub.cycleQuotaUsd, s)}<br/>周期剩余时间: ${sub.cycleRemainingDays} / ${sub.cycleTotalDays} 天 (剩 ${timeRemainPct}%)`
+      `<strong>本订阅周期 (${fmtDateShort(sub.cycleStartMs)} ~ ${fmtDateShort(sub.cycleEndMs)})</strong><br/>额度来源: ${quotaSourceTag(sub.cycleQuotaSource)}<br/>周期推算总额: ${fmtCost(sub.cycleQuotaUsd, s)}<br/>本周期已用: ${fmtCost(sub.cycleUsedUsd, s)}<br/>剩余可用: ${fmtCost(sub.cycleRemainingUsd, s)} (${remPct}%)<br/>周期剩余时间: ${sub.cycleRemainingDays} / ${sub.cycleTotalDays} 天`
     );
 
-    const officialHint = (snap.quotaHints || []).length
-      ? `<div style="margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11.5px;color:var(--fg-muted)">
-          <span>日志捕获官方配额提示：</span>
+    const activeAlerts = (snap.quotaHints || []).length
+      ? `<div style="margin-top:9px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11.5px;color:var(--fg-muted)">
+          <span>当前生效的官方低配额告警：</span>
           ${snap.quotaHints
             .map(
               (q) =>
-                `<span class="badge warn">${esc(q.modelLabel)} 剩余 ${q.remainingPct}% (${esc(fmtTimeShort(Date.parse(q.resetsAt)))} 重置)</span>`
+                `<span class="badge warn">${esc(q.modelLabel)} 剩余 ${q.remainingPct}% (${esc(fmtTimeShort(q.resetsAtMs))} 重置)</span>`
             )
             .join("")}
         </div>`
       : "";
+
+    const calNote =
+      cal?.totalAnchors > 0
+        ? `<div style="margin-top:8px;font-size:11.5px;color:var(--fg-muted)">
+            已通过 <strong>${cal.totalAnchors}</strong> 条日志官方配额锚点自动反推：Gemini 5h 满池 ≈ ${fmtCost(cal.gemini5hCapUsd, s, 0)} · 7天周限推算 ≈ ${fmtCost(cal.gemini7dCapUsd, s, 0)} · 订阅期(${sub.cycleTotalDays}天)推算总额 ≈ ${fmtCost(sub.cycleQuotaUsd, s, 0)}${cal.lastGeminiResetAt ? `（上轮 5h 已于 ${fmtTimeShort(cal.lastGeminiResetAt)} 重置）` : ""}
+          </div>`
+        : `<div style="margin-top:8px;font-size:11.5px;color:var(--fg-muted)">
+            当前按本地用量与 5h/周限模型自动推算（触发低配额日志后将自动用官方锚点精确校准）。
+          </div>`;
 
     subQuotaCard = `
       <div class="card">
@@ -1024,6 +1086,7 @@ function renderOverviewTab(snap) {
             ${icon("gauge", "sm muted")}
             <span>订阅期剩余额度</span>
             <span class="badge info">${esc(sub.planName)}</span>
+            <span class="badge neutral">${quotaSourceTag(sub.cycleQuotaSource)}</span>
             <span class="badge neutral num">${fmtDateShort(sub.cycleStartMs)} ~ ${fmtDateShort(sub.cycleEndMs)} · 剩 ${sub.cycleRemainingDays} 天</span>
           </div>
           <button class="btn sm" data-action="set-tab" data-val="pricing">调整额度</button>
@@ -1031,9 +1094,9 @@ function renderOverviewTab(snap) {
 
         <div class="quota-hero">
           <div class="quota-hero-main">
-            <span class="quota-remain-val ${tone} num">${esc(fmtCost(sub.cycleRemainingUsd, s))}</span>
-            ${fmtCostSub(sub.cycleRemainingUsd, s) ? `<span class="kpi-sub-val num">${esc(fmtCostSub(sub.cycleRemainingUsd, s))}</span>` : ""}
-            <span class="badge ${tone} num">剩余 ${remPct}%</span>
+            <span class="quota-remain-val ${tone} num">${isCycleOver ? `已超 ${esc(fmtCost(sub.cycleExceededUsd, s))}` : esc(fmtCost(sub.cycleRemainingUsd, s))}</span>
+            ${!isCycleOver && fmtCostSub(sub.cycleRemainingUsd, s) ? `<span class="kpi-sub-val num">${esc(fmtCostSub(sub.cycleRemainingUsd, s))}</span>` : ""}
+            <span class="badge ${tone} num">${isCycleOver ? "超参考上限" : `剩余 ${remPct}%`}</span>
           </div>
           <div class="quota-hero-meta num">
             <span>本周期已用 <strong>${esc(fmtCost(sub.cycleUsedUsd, s))}</strong> / ${esc(fmtCost(sub.cycleQuotaUsd, s))}</span>
@@ -1043,13 +1106,14 @@ function renderOverviewTab(snap) {
 
         <div class="quota-bar-wrap" data-tip="${barTip}">
           <div class="quota-bar-track">
-            <div class="bar-fill ${barCls}" style="width:${Math.max(remPct > 0 ? 1.5 : 0, remPct)}%"></div>
+            <div class="bar-fill ${barCls}" style="width:${isCycleOver ? 100 : Math.max(remPct > 0 ? 1.5 : 0, remPct)}%"></div>
           </div>
           <div class="quota-bar-marker" style="left:${timeRemainPct}%" title="剩余时间进度 ${timeRemainPct}%"></div>
         </div>
 
         <div class="quota-pools-grid">${poolItems}</div>
-        ${officialHint}
+        ${activeAlerts}
+        ${calNote}
       </div>
     `;
   }
@@ -1538,7 +1602,14 @@ function renderPricingTab(snap) {
             <input class="text-input num" id="sub-monthly-usd" type="number" step="1" value="${sub.monthlyUsd ?? 99}" />
           </div>
           <div class="field">
-            <label>周期参考总额度 (USD)</label>
+            <label>额度估算模式</label>
+            <select class="select-pill" id="sub-auto-quota">
+              <option value="true" ${sub.autoQuota !== false ? "selected" : ""}>自动推算（日志锚点 + 5h/周限）</option>
+              <option value="false" ${sub.autoQuota === false ? "selected" : ""}>手动固定上限</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>手动周期总额度 (USD)</label>
             <input class="text-input num" id="sub-cycle-quota" type="number" step="50" value="${sub.cycleQuotaUsd ?? 1600}" />
           </div>
           <div class="field">
@@ -2127,6 +2198,7 @@ function initEvents() {
           planName: document.getElementById("sub-plan-name")?.value || "Google AI Ultra",
           tierBadge: document.getElementById("sub-tier-badge")?.value || "Ultra · 5x",
           monthlyUsd: Number(document.getElementById("sub-monthly-usd")?.value) || 99,
+          autoQuota: document.getElementById("sub-auto-quota")?.value !== "false",
           cycleQuotaUsd: Number(document.getElementById("sub-cycle-quota")?.value) || 1600,
           billingDay: Number(document.getElementById("sub-billing-day")?.value) || 1,
         },

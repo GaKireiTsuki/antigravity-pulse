@@ -135,3 +135,65 @@ test("incremental byte-offset indexer, cache anomaly detection, and unchanged re
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("auto quota inference derives 5h pool from [quota] anchor, resets after boundary, and hides expired alerts", () => {
+  const { tmp, agyDir, dataDir } = makeTempEnv();
+  try {
+    const cid = "22222222-2222-2222-2222-222222222222";
+    const now = Date.now();
+    // Previous 5h window ended 30 minutes ago; inside it we spent $100 and got a 20% remaining notice => inferred 5h cap = $125
+    const resetMs = now - 30 * 60 * 1000;
+    const stepBeforeReset = resetMs - 60 * 60 * 1000;
+    const anchorTs = resetMs - 10 * 60 * 1000;
+    const stepAfterReset = now - 5 * 60 * 1000;
+
+    // Gemini 4 Neon: input $3/M, output $15/M => 20M input ($60) + ~2.667M output ($40) = $100
+    writeTranscript(agyDir, cid, [
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        model: "gemini-4-neon-xhigh",
+        input_tokens: 20_000_000,
+        cache_read_tokens: 0,
+        output_tokens: 2_666_667,
+        created_at: new Date(stepBeforeReset).toISOString(),
+      },
+      {
+        step_index: 2,
+        type: "SYSTEM_MESSAGE",
+        content: `[quota] model gemini-4-neon-xhigh is low on quota (20% remaining, resets at ${new Date(resetMs).toISOString()})`,
+        created_at: new Date(anchorTs).toISOString(),
+      },
+      // New step AFTER 5h reset: $3 input + $0 output = $3
+      {
+        step_index: 3,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        model: "gemini-4-neon-xhigh",
+        input_tokens: 1_000_000,
+        cache_read_tokens: 0,
+        output_tokens: 0,
+        created_at: new Date(stepAfterReset).toISOString(),
+      },
+    ]);
+
+    const store = new PulseStore({ antigravityDir: agyDir, dataDir });
+    const snap = store.getOverviewSnapshot({ range: "all" });
+
+    // Expired low-quota warning must NOT show in active alerts
+    assert.equal(snap.quotaHints.length, 0);
+    // 5h pool inferred from $100 / 0.80 = $125
+    assert.equal(snap.rollingWindows.gemini5h.source, "anchor");
+    assert.equal(snap.rollingWindows.gemini5h.budgetUsd, 125);
+    // Only post-reset $3 spend counted in current 5h window (not pre-reset $100!)
+    assert.equal(snap.rollingWindows.gemini5h.costUsd, 3);
+    assert.equal(snap.rollingWindows.gemini5h.remainingUsd, 122);
+    assert.ok(snap.rollingWindows.gemini5h.remainingPct > 97);
+    // Cycle quota auto-derived from inferred weekly quota
+    assert.equal(snap.subscription.cycleQuotaSource, "anchor");
+    assert.ok(snap.subscription.cycleQuotaUsd > 2000);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

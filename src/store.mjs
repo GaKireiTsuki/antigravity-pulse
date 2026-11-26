@@ -11,7 +11,7 @@ import {
 } from "./pricing.mjs";
 import { analyzeConversationContext } from "./context-analyzer.mjs";
 
-const INDEX_VERSION = 1;
+const INDEX_VERSION = 2;
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 const CACHE_ANOMALY_WINDOW_MS = 4 * 60 * 1000;
@@ -71,12 +71,37 @@ function parseQuotaNotice(text, tsMs) {
   if (!text || !text.includes("[quota]")) return null;
   const m = text.match(/model\s+([^\s]+)\s+is\s+low\s+on\s+quota\s*\((\d+)%\s+remaining,\s+resets\s+at\s+([^)]+)\)/i);
   if (!m) return null;
+  const resetsAt = m[3].trim();
+  const resetsAtMs = Date.parse(resetsAt);
+  if (!Number.isFinite(resetsAtMs)) return null;
+  const leadMs = resetsAtMs - tsMs;
+  const kind = leadMs <= 5.5 * 3600000 ? "5h" : "7d";
+  const modelKey = normalizeModelKey(m[1]);
+  const pool = modelKey.startsWith("claude") ? "claude" : "gemini";
   return {
     model: m[1],
+    modelKey,
+    pool,
+    kind,
     remainingPct: Number(m[2]),
-    resetsAt: m[3].trim(),
+    resetsAt,
+    resetsAtMs,
     tsMs,
   };
+}
+
+function median(nums) {
+  if (!nums || nums.length === 0) return null;
+  const arr = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(arr.length / 2);
+  return arr.length % 2 === 1 ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2;
+}
+
+function roundNiceUsd(val) {
+  if (!Number.isFinite(val) || val <= 0) return 0;
+  if (val < 50) return Math.ceil(val / 5) * 5;
+  if (val < 300) return Math.round(val / 5) * 5;
+  return Math.round(val / 10) * 10;
 }
 
 export class PulseStore {
@@ -446,7 +471,7 @@ export class PulseStore {
         const q = parseQuotaNotice(obj.content, tsMs);
         if (q) {
           entry.quotaHints.push(q);
-          if (entry.quotaHints.length > 20) entry.quotaHints.shift();
+          if (entry.quotaHints.length > 60) entry.quotaHints.shift();
           added = true;
         }
         continue;
@@ -666,6 +691,285 @@ export class PulseStore {
     return { all, allQuotaHints };
   }
 
+  /**
+   * Automatically infer 5h and 7d pool capacities & current active window bounds
+   * from historical official [quota] notices and observed usage patterns.
+   */
+  _inferPoolQuotas(allSteps, rawQuotaHints, nowMs) {
+    // Normalize older cached quota hints that may lack pool/kind/resetsAtMs
+    const hints = [];
+    for (const q of rawQuotaHints || []) {
+      const rMs = Number.isFinite(q.resetsAtMs) ? q.resetsAtMs : Date.parse(q.resetsAt || "");
+      if (!Number.isFinite(rMs)) continue;
+      const mk = q.modelKey || normalizeModelKey(q.model);
+      const pool = q.pool || (mk.startsWith("claude") ? "claude" : "gemini");
+      const kind = q.kind || (rMs - q.tsMs <= 5.5 * 3600000 ? "5h" : "7d");
+      hints.push({ ...q, modelKey: mk, pool, kind, resetsAtMs: rMs });
+    }
+
+    const byPoolSteps = {
+      gemini: allSteps.filter((s) => s.pool !== "claude"),
+      claude: allSteps.filter((s) => s.pool === "claude"),
+    };
+
+    const sumPoolBetween = (pool, startMs, endMs) => {
+      let cost = 0;
+      let tokens = 0;
+      let requests = 0;
+      let firstTs = null;
+      for (const s of byPoolSteps[pool]) {
+        if (s.tsMs < startMs) continue;
+        if (s.tsMs > endMs) break;
+        cost += s.costUsd;
+        tokens += s.inputTokens + s.cacheReadTokens + s.outputTokens;
+        requests++;
+        if (firstTs === null) firstTs = s.tsMs;
+      }
+      return { cost, tokens, requests, firstTs };
+    };
+
+    // Peak rolling 7d observed spend per pool (using two-pointer O(N) scan)
+    const peakRollingCost = (pool, winMs) => {
+      const list = byPoolSteps[pool];
+      let left = 0;
+      let cur = 0;
+      let peak = 0;
+      for (let right = 0; right < list.length; right++) {
+        cur += list[right].costUsd;
+        while (left < right && list[right].tsMs - list[left].tsMs > winMs) {
+          cur -= list[left].costUsd;
+          left++;
+        }
+        if (cur > peak) peak = cur;
+      }
+      return peak;
+    };
+
+    const inferForPool = (pool) => {
+      const poolHints = hints.filter((h) => h.pool === pool);
+      const hints5h = poolHints.filter((h) => h.kind === "5h");
+      const hints7d = poolHints.filter((h) => h.kind === "7d");
+
+      // 1. Infer 5h capacity from [quota] anchors (grouped by reset timestamp minute)
+      const samples5h = [];
+      const seen5h = new Set();
+      for (const h of hints5h) {
+        const dedupKey = `${Math.round(h.resetsAtMs / 60000)}:${h.remainingPct}`;
+        if (seen5h.has(dedupKey)) continue;
+        seen5h.add(dedupKey);
+        const usedPct = 100 - h.remainingPct;
+        if (usedPct < 20) continue;
+        const winStart = h.resetsAtMs - FIVE_HOURS_MS;
+        const agg = sumPoolBetween(pool, winStart, h.tsMs);
+        if (agg.cost >= 1) {
+          samples5h.push(agg.cost / (usedPct / 100));
+        }
+      }
+
+      // 2. Infer 7d capacity from weekly [quota] anchors if any exist
+      const samples7d = [];
+      const seen7d = new Set();
+      for (const h of hints7d) {
+        const dedupKey = `${Math.round(h.resetsAtMs / 60000)}:${h.remainingPct}`;
+        if (seen7d.has(dedupKey)) continue;
+        seen7d.add(dedupKey);
+        const usedPct = 100 - h.remainingPct;
+        if (usedPct < 15) continue;
+        const winStart = h.resetsAtMs - SEVEN_DAYS_MS;
+        const agg = sumPoolBetween(pool, winStart, h.tsMs);
+        if (agg.cost >= 5) {
+          samples7d.push(agg.cost / (usedPct / 100));
+        }
+      }
+
+      const peak5h = peakRollingCost(pool, FIVE_HOURS_MS);
+      const peak7d = peakRollingCost(pool, SEVEN_DAYS_MS);
+      const cfg5h = pool === "claude" ? this.settings.budgets.claude5hUsd : this.settings.budgets.gemini5hUsd;
+      const cfg7d = pool === "claude" ? this.settings.budgets.claude7dUsd : this.settings.budgets.gemini7dUsd;
+      const autoMode = this.settings.subscription?.autoQuota !== false;
+
+      // Resolve 5h full pool USD & source
+      let cap5hUsd = cfg5h;
+      let cap5hSource = "manual";
+      const med5h = median(samples5h);
+      if (autoMode) {
+        if (med5h && med5h >= 5) {
+          cap5hUsd = roundNiceUsd(med5h);
+          cap5hSource = "anchor";
+        } else if (peak5h > 0) {
+          // Never triggered low-quota warning (<=20% remaining), so capacity is at least peak / 0.78
+          cap5hUsd = roundNiceUsd(Math.max(cfg5h, peak5h / 0.78));
+          cap5hSource = "estimated";
+        } else {
+          cap5hSource = "default";
+        }
+      }
+
+      // Resolve 7d full pool USD & source
+      let cap7dUsd = cfg7d;
+      let cap7dSource = "manual";
+      const med7d = median(samples7d);
+      if (autoMode) {
+        if (med7d && med7d >= 20) {
+          cap7dUsd = roundNiceUsd(med7d);
+          cap7dSource = "anchor";
+        } else {
+          // Weekly pool is typically ~6x the 5h burst pool, and must exceed observed 7d peak if no weekly low-quota fired
+          const from5h = med5h ? med5h * 6 : cfg7d;
+          const fromPeak = peak7d > 0 ? peak7d / 0.78 : 0;
+          cap7dUsd = roundNiceUsd(Math.max(from5h, fromPeak, cfg7d));
+          cap7dSource = med5h || peak7d > 0 ? "estimated" : "default";
+        }
+      }
+
+      // 3. Determine CURRENT active 5h window aligned with official reset boundary!
+      const latest5hHint = hints5h.length ? hints5h.reduce((a, b) => (b.tsMs > a.tsMs ? b : a)) : null;
+      let active5hStart = nowMs - FIVE_HOURS_MS;
+      let active5hResetAt = null;
+      let active5hAnchor = null;
+      let lastResetAt = null;
+
+      if (latest5hHint) {
+        if (nowMs < latest5hHint.resetsAtMs) {
+          // Currently inside an officially anchored 5h window
+          active5hStart = latest5hHint.resetsAtMs - FIVE_HOURS_MS;
+          active5hResetAt = latest5hHint.resetsAtMs;
+          active5hAnchor = latest5hHint;
+        } else {
+          // Previous 5h window ALREADY reset! Only count usage AFTER its reset timestamp.
+          lastResetAt = latest5hHint.resetsAtMs;
+          const afterReset = sumPoolBetween(pool, Math.max(lastResetAt, nowMs - FIVE_HOURS_MS), nowMs);
+          if (afterReset.firstTs !== null) {
+            active5hStart = afterReset.firstTs;
+            active5hResetAt = afterReset.firstTs + FIVE_HOURS_MS;
+          } else {
+            active5hStart = lastResetAt;
+            active5hResetAt = null;
+          }
+        }
+      } else {
+        const rolling = sumPoolBetween(pool, nowMs - FIVE_HOURS_MS, nowMs);
+        if (rolling.firstTs !== null) {
+          active5hStart = rolling.firstTs;
+          active5hResetAt = rolling.firstTs + FIVE_HOURS_MS;
+        }
+      }
+
+      const cur5h = sumPoolBetween(pool, active5hStart, nowMs);
+      let rem5hPct;
+      let rem5hUsd;
+      if (active5hAnchor) {
+        // Project directly from latest live official anchor minus delta spend since anchor
+        const deltaSinceAnchor = sumPoolBetween(pool, active5hAnchor.tsMs + 1, nowMs).cost;
+        const deltaPct = cap5hUsd > 0 ? (deltaSinceAnchor / cap5hUsd) * 100 : 0;
+        rem5hPct = Math.max(0, Number((active5hAnchor.remainingPct - deltaPct).toFixed(1)));
+        rem5hUsd = Number(((rem5hPct / 100) * cap5hUsd).toFixed(2));
+      } else {
+        rem5hUsd = Math.max(0, Number((cap5hUsd - cur5h.cost).toFixed(2)));
+        rem5hPct = cap5hUsd > 0 ? Math.max(0, Number((100 - (cur5h.cost / cap5hUsd) * 100).toFixed(1))) : 0;
+      }
+
+      // 4. Current 7d window (aligned with official weekly anchor if active, else rolling 7d)
+      const latest7dHint = hints7d.length ? hints7d.reduce((a, b) => (b.tsMs > a.tsMs ? b : a)) : null;
+      let active7dStart = nowMs - SEVEN_DAYS_MS;
+      let active7dResetAt = null;
+      let active7dAnchor = null;
+
+      if (latest7dHint && nowMs < latest7dHint.resetsAtMs) {
+        active7dStart = latest7dHint.resetsAtMs - SEVEN_DAYS_MS;
+        active7dResetAt = latest7dHint.resetsAtMs;
+        active7dAnchor = latest7dHint;
+      } else {
+        const rolling7 = sumPoolBetween(pool, nowMs - SEVEN_DAYS_MS, nowMs);
+        if (rolling7.firstTs !== null) {
+          active7dStart = rolling7.firstTs;
+          active7dResetAt = rolling7.firstTs + SEVEN_DAYS_MS;
+        }
+      }
+
+      const cur7d = sumPoolBetween(pool, active7dStart, nowMs);
+      let rem7dPct;
+      let rem7dUsd;
+      if (active7dAnchor) {
+        const deltaSinceAnchor = sumPoolBetween(pool, active7dAnchor.tsMs + 1, nowMs).cost;
+        const deltaPct = cap7dUsd > 0 ? (deltaSinceAnchor / cap7dUsd) * 100 : 0;
+        rem7dPct = Math.max(0, Number((active7dAnchor.remainingPct - deltaPct).toFixed(1)));
+        rem7dUsd = Number(((rem7dPct / 100) * cap7dUsd).toFixed(2));
+      } else {
+        rem7dUsd = Math.max(0, Number((cap7dUsd - cur7d.cost).toFixed(2)));
+        rem7dPct = cap7dUsd > 0 ? Math.max(0, Number((100 - (cur7d.cost / cap7dUsd) * 100).toFixed(1))) : 0;
+      }
+
+      const buildWin = (cur, capUsd, remUsd, remPct, resetAt, source, anchorCount, lastReset) => {
+        const exceededUsd = Math.max(0, Number((cur.cost - capUsd).toFixed(2)));
+        const usedPct = capUsd > 0 ? Math.min(100, Number(((cur.cost / capUsd) * 100).toFixed(1))) : 0;
+        return {
+          tokens: cur.tokens,
+          costUsd: Number(cur.cost.toFixed(2)),
+          requests: cur.requests,
+          budgetUsd: capUsd,
+          pct: usedPct,
+          remainingUsd: remUsd,
+          remainingPct: remPct,
+          exceededUsd,
+          resetAt,
+          resetInMs: resetAt ? Math.max(0, resetAt - nowMs) : null,
+          source, // "anchor" | "estimated" | "manual" | "default"
+          anchorCount,
+          lastResetAt: lastReset || null,
+        };
+      };
+
+      return {
+        win5h: buildWin(cur5h, cap5hUsd, rem5hUsd, rem5hPct, active5hResetAt, cap5hSource, hints5h.length, lastResetAt),
+        win7d: buildWin(cur7d, cap7dUsd, rem7dUsd, rem7dPct, active7dResetAt, cap7dSource, hints7d.length, null),
+        totalAnchors: poolHints.length,
+        lastResetAt,
+      };
+    };
+
+    const gemini = inferForPool("gemini");
+    const claude = inferForPool("claude");
+
+    // Only keep CURRENTLY ACTIVE (unexpired) official low-quota warnings for alert banners
+    const activeHintsMap = new Map();
+    for (const h of hints) {
+      if (h.resetsAtMs <= nowMs) continue; // already reset!
+      if (!activeHintsMap.has(h.modelKey) || h.tsMs > activeHintsMap.get(h.modelKey).observedAt) {
+        const info = getModelInfo(h.model, this.settings);
+        activeHintsMap.set(h.modelKey, {
+          modelKey: h.modelKey,
+          modelLabel: info.label,
+          kind: h.kind,
+          remainingPct: h.remainingPct,
+          resetsAt: h.resetsAt,
+          resetsAtMs: h.resetsAtMs,
+          observedAt: h.tsMs,
+        });
+      }
+    }
+
+    return {
+      rollingWindows: {
+        gemini5h: gemini.win5h,
+        gemini7d: gemini.win7d,
+        claude5h: claude.win5h,
+        claude7d: claude.win7d,
+      },
+      activeQuotaHints: [...activeHintsMap.values()],
+      calibration: {
+        totalAnchors: gemini.totalAnchors + claude.totalAnchors,
+        gemini5hCapUsd: gemini.win5h.budgetUsd,
+        gemini5hSource: gemini.win5h.source,
+        gemini7dCapUsd: gemini.win7d.budgetUsd,
+        gemini7dSource: gemini.win7d.source,
+        claude5hCapUsd: claude.win5h.budgetUsd,
+        claude7dCapUsd: claude.win7d.budgetUsd,
+        lastGeminiResetAt: gemini.lastResetAt,
+      },
+    };
+  }
+
   getOverviewSnapshot(params = {}) {
     this.sync();
     const range = params.range || "all";
@@ -699,13 +1003,8 @@ export class PulseStore {
     const heatmapStart = todayStart - (totalDays - 1) * 86400000;
     const dayMap = new Map();
 
-    // 2. Rolling 5h / 7d windows (always across all models split by pool)
-    const rolling = {
-      gemini5h: { tokens: 0, costUsd: 0, requests: 0, oldestTs: null, budgetUsd: this.settings.budgets.gemini5hUsd },
-      gemini7d: { tokens: 0, costUsd: 0, requests: 0, oldestTs: null, budgetUsd: this.settings.budgets.gemini7dUsd },
-      claude5h: { tokens: 0, costUsd: 0, requests: 0, oldestTs: null, budgetUsd: this.settings.budgets.claude5hUsd },
-      claude7d: { tokens: 0, costUsd: 0, requests: 0, oldestTs: null, budgetUsd: this.settings.budgets.claude7dUsd },
-    };
+    // 2. Auto-calibrated rolling 5h / 7d windows (reset-boundary aligned + anchor inferred)
+    const quotaInference = this._inferPoolQuotas(all, allQuotaHints, nowMs);
 
     let cycleCostUsd = 0;
     let cycleTokens = 0;
@@ -771,22 +1070,6 @@ export class PulseStore {
       }
       if (s.status !== "DONE") ct.errors++;
       if (s.cacheAnomaly) ct.anomalies++;
-
-      // Rolling pools
-      if (s.tsMs >= nowMs - FIVE_HOURS_MS) {
-        const b = s.pool === "claude" ? rolling.claude5h : rolling.gemini5h;
-        b.tokens += tok;
-        b.costUsd += s.costUsd;
-        b.requests++;
-        if (b.oldestTs === null || s.tsMs < b.oldestTs) b.oldestTs = s.tsMs;
-      }
-      if (s.tsMs >= nowMs - SEVEN_DAYS_MS) {
-        const b = s.pool === "claude" ? rolling.claude7d : rolling.gemini7d;
-        b.tokens += tok;
-        b.costUsd += s.costUsd;
-        b.requests++;
-        if (b.oldestTs === null || s.tsMs < b.oldestTs) b.oldestTs = s.tsMs;
-      }
 
       // Heatmap aggregation (honors modelFilter)
       if (modelFilter === "all" || s.modelKey === modelFilter) {
@@ -1015,31 +1298,26 @@ export class PulseStore {
         };
       });
 
-    // Rolling window reset countdowns
-    const finalizeWindow = (w, durationMs) => {
-      const resetAt = w.oldestTs ? w.oldestTs + durationMs : null;
-      const resetInMs = resetAt ? Math.max(0, resetAt - nowMs) : null;
-      const pct = w.budgetUsd > 0 ? Math.min(100, Number(((w.costUsd / w.budgetUsd) * 100).toFixed(1))) : 0;
-      const remainingUsd = Math.max(0, Number((w.budgetUsd - w.costUsd).toFixed(2)));
-      const remainingPct = w.budgetUsd > 0 ? Math.max(0, Number((100 - (w.costUsd / w.budgetUsd) * 100).toFixed(1))) : 0;
-      return {
-        tokens: w.tokens,
-        costUsd: Number(w.costUsd.toFixed(2)),
-        requests: w.requests,
-        budgetUsd: w.budgetUsd,
-        pct,
-        remainingUsd,
-        remainingPct,
-        resetInMs,
-        resetAt,
-      };
-    };
-
     // Subscription ROI & billing-cycle remaining quota metrics
     const subCfg = this.settings.subscription || DEFAULT_SETTINGS.subscription;
     const refCostUsd = range === "all" ? allTimeCostUsd : range === "cycle" ? cycleCostUsd : totalCostUsd;
     const monthlyUsd = Math.max(0.01, Number(subCfg.monthlyUsd || 99));
-    const cycleQuotaUsd = Math.max(1, Number(subCfg.cycleQuotaUsd || 1600));
+    const cycleTotalDays = Math.max(1, Math.round((cycleEndMs - cycleStartMs) / 86400000));
+    const autoQuota = subCfg.autoQuota !== false;
+
+    // Auto-derive cycle quota from inferred weekly pools (Gemini 7d + Claude 7d) scaled to billing cycle weeks
+    const rw = quotaInference.rollingWindows;
+    const inferredWeeklyTotalUsd = rw.gemini7d.budgetUsd + (rw.claude7d.tokens > 0 ? rw.claude7d.budgetUsd : 0);
+    const autoCycleQuotaUsd = roundNiceUsd(
+      Math.max(inferredWeeklyTotalUsd * (cycleTotalDays / 7), cycleCostUsd / 0.85)
+    );
+    const cycleQuotaUsd = autoQuota ? autoCycleQuotaUsd : Math.max(1, Number(subCfg.cycleQuotaUsd || 1600));
+    const cycleQuotaSource = autoQuota
+      ? quotaInference.calibration.totalAnchors > 0
+        ? "anchor"
+        : "estimated"
+      : "manual";
+
     const roiMultiplier = Number((refCostUsd / monthlyUsd).toFixed(2));
     const netSavedUsd = Number((refCostUsd - monthlyUsd).toFixed(2));
     const effectiveDiscountPct = refCostUsd > 0 ? Number(((monthlyUsd / refCostUsd) * 100).toFixed(1)) : 100;
@@ -1049,7 +1327,6 @@ export class PulseStore {
     const cycleExceededUsd = Math.max(0, Number((cycleCostUsd - cycleQuotaUsd).toFixed(2)));
     const cycleUsedPct = Math.min(100, Number(((cycleCostUsd / cycleQuotaUsd) * 100).toFixed(1)));
     const cycleRemainingPct = Math.max(0, Number((100 - (cycleCostUsd / cycleQuotaUsd) * 100).toFixed(1)));
-    const cycleTotalDays = Math.max(1, Math.round((cycleEndMs - cycleStartMs) / 86400000));
     const cycleElapsedDays = Math.max(1, Math.min(cycleTotalDays, Math.ceil((nowMs - cycleStartMs) / 86400000)));
     const cycleRemainingDays = Math.max(0, Math.ceil((cycleEndMs - nowMs) / 86400000));
     const cycleTimePct = Math.min(100, Number((((nowMs - cycleStartMs) / Math.max(1, cycleEndMs - cycleStartMs)) * 100).toFixed(1)));
@@ -1117,23 +1394,6 @@ export class PulseStore {
       };
     }
 
-    // Latest unique quota hints per model (within last 7 days)
-    const latestQuotaByModel = new Map();
-    for (const q of allQuotaHints) {
-      if (nowMs - q.tsMs > SEVEN_DAYS_MS) continue;
-      const k = normalizeModelKey(q.model);
-      if (!latestQuotaByModel.has(k)) {
-        const info = getModelInfo(q.model, this.settings);
-        latestQuotaByModel.set(k, {
-          modelKey: k,
-          modelLabel: info.label,
-          remainingPct: q.remainingPct,
-          resetsAt: q.resetsAt,
-          observedAt: q.tsMs,
-        });
-      }
-    }
-
     return {
       unchanged: false,
       revision: sig,
@@ -1170,7 +1430,9 @@ export class PulseStore {
       },
       subscription: {
         ...subCfg,
+        autoQuota,
         cycleQuotaUsd,
+        cycleQuotaSource,
         cycleStartMs,
         cycleEndMs,
         cycleTotalDays,
@@ -1200,13 +1462,9 @@ export class PulseStore {
       },
       heatmap,
       models,
-      rollingWindows: {
-        gemini5h: finalizeWindow(rolling.gemini5h, FIVE_HOURS_MS),
-        gemini7d: finalizeWindow(rolling.gemini7d, SEVEN_DAYS_MS),
-        claude5h: finalizeWindow(rolling.claude5h, FIVE_HOURS_MS),
-        claude7d: finalizeWindow(rolling.claude7d, SEVEN_DAYS_MS),
-      },
-      quotaHints: [...latestQuotaByModel.values()],
+      rollingWindows: quotaInference.rollingWindows,
+      quotaHints: quotaInference.activeQuotaHints,
+      quotaCalibration: quotaInference.calibration,
       latestSession,
       recentSessions,
       settings: this.settings,

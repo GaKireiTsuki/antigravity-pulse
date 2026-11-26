@@ -13,15 +13,16 @@ export const DEFAULT_SETTINGS = {
     planName: "Google AI Ultra",
     tierBadge: "Ultra · 5x",
     monthlyUsd: 99,
-    cycleQuotaUsd: 1600,
+    autoQuota: true, // automatically infer 5h / 7d / cycle quotas from usage & official [quota] notices
+    cycleQuotaUsd: 1600, // used only when autoQuota is false
     billingDay: 1,
   },
   pollIntervalMs: 2500, // 0 = manual only
   budgets: {
-    gemini5hUsd: 80,
-    gemini7dUsd: 400,
-    claude5hUsd: 30,
-    claude7dUsd: 150,
+    gemini5hUsd: 135,
+    gemini7dUsd: 810,
+    claude5hUsd: 60,
+    claude7dUsd: 360,
   },
   contextLimits: {
     default: 512000,
