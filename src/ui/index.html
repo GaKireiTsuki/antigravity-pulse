@@ -15,6 +15,20 @@
   </div>
   <div id="tooltip" class="pulse-tooltip" role="tooltip"></div>
   <div id="toast" class="pulse-toast"></div>
+  <div id="copy-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-label="复制内容">
+    <div class="modal-card">
+      <div class="modal-head">
+        <span id="copy-modal-title" class="modal-title">复制内容</span>
+        <button id="copy-modal-close" class="icon-btn square" type="button" title="关闭"><svg class="ico sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+      <div class="modal-hint">当前沙箱限制自动写入剪贴板，内容已自动全选，直接按 <kbd>⌘C</kbd> / <kbd>Ctrl+C</kbd> 即可复制：</div>
+      <textarea id="copy-modal-text" class="modal-textarea mono" readonly></textarea>
+      <div class="modal-foot">
+        <button id="copy-modal-select" class="btn sm" type="button">重新全选</button>
+        <button id="copy-modal-done" class="btn solid sm" type="button">完成</button>
+      </div>
+    </div>
+  </div>
   <script>/*__INLINE_JS__*/</script>
 </body>
 </html>

@@ -507,37 +507,38 @@ function renderHeatmap(days, metric, settings) {
 }
 
 function renderDonut(models, valueKey, centerVal, centerLabel, settings) {
-  const r = 60;
-  const cx = 82;
-  const cy = 82;
+  const r = 52;
+  const cx = 66;
+  const cy = 66;
   const circ = 2 * Math.PI * r;
-  const total = models.reduce((s, m) => s + Number(m[valueKey] || 0), 0);
+  const activeModels = models.filter((m) => Number(m[valueKey] || 0) > 0);
+  const total = activeModels.reduce((s, m) => s + Number(m[valueKey] || 0), 0);
+  const segGap = activeModels.length > 1 ? 2.8 : 0;
 
   let segs = "";
-  if (total <= 0) {
-    segs = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--bg-elevated)" stroke-width="19"></circle>`;
-  } else {
+  if (total > 0) {
     let offset = 0;
-    for (const m of models) {
+    for (const m of activeModels) {
       const val = Number(m[valueKey] || 0);
-      if (val <= 0) continue;
       const frac = val / total;
-      const dash = Math.max(2, frac * circ);
+      const rawLen = frac * circ;
+      const dash = Math.max(2, rawLen - segGap);
       const pct = (frac * 100).toFixed(1);
       const valStr = valueKey === "costUsd" ? fmtCost(val, settings) : fmtTokens(val, 2, settings);
       const tip = esc(`<strong>${m.label}</strong><br/>${valStr} (${pct}%)`);
-      segs += `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${m.color}" stroke-width="19" stroke-dasharray="${dash} ${circ - dash}" stroke-dashoffset="${-offset}" transform="rotate(-90 ${cx} ${cy})" data-tip="${tip}"></circle>`;
-      offset += frac * circ;
+      segs += `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${r}" stroke="${m.color}" stroke-dasharray="${dash.toFixed(2)} ${(circ - dash).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})" data-tip="${tip}"></circle>`;
+      offset += rawLen;
     }
   }
 
   return `
     <div class="donut-box">
-      <svg class="donut-svg" viewBox="0 0 164 164" role="img" aria-label="${esc(centerLabel)}">
-        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--bg-elevated)" stroke-width="19"></circle>
+      <svg class="donut-svg" viewBox="0 0 132 132" role="img" aria-label="${esc(centerLabel)}">
+        <circle class="donut-track" cx="${cx}" cy="${cy}" r="${r}"></circle>
+        <circle class="donut-inner-guide" cx="${cx}" cy="${cy}" r="${r - 11}"></circle>
         <g class="donut-ring">${segs}</g>
-        <text x="${cx}" y="${cy - 2}" text-anchor="middle" class="donut-center-val num">${esc(centerVal)}</text>
-        <text x="${cx}" y="${cy + 15}" text-anchor="middle" class="donut-center-lbl">${esc(centerLabel)}</text>
+        <text x="${cx}" y="${cy - 1}" text-anchor="middle" class="donut-center-val num">${esc(centerVal)}</text>
+        <text x="${cx}" y="${cy + 14}" text-anchor="middle" class="donut-center-lbl">${esc(centerLabel)}</text>
       </svg>
     </div>
   `;
@@ -898,49 +899,44 @@ function renderOverviewTab(snap) {
     </div>
   `;
 
+  const distItemsHtml = models
+    .map(
+      (m) => `
+      <div class="dist-item">
+        <div class="dist-item-top">
+          <span class="dist-item-name">
+            <span class="model-dot" style="background:${m.color}"></span>
+            <strong>${esc(m.label)}</strong>
+          </span>
+          <span class="dist-item-nums num">
+            <span>${fmtTokens(m.tokens, 2, s)}</span>
+            <span style="color:var(--fg-muted)">${m.shareTokens}%</span>
+            <strong>${esc(fmtCost(m.costUsd, s))}</strong>
+            ${s.currency === "dual" ? `<span style="color:var(--fg-muted);font-size:11px">(${fmtCny(m.costUsd, s.usdToCny, 0)})</span>` : ""}
+          </span>
+        </div>
+        <div class="dist-bar-track">
+          <div class="dist-bar-fill" style="width:${Math.max(m.tokens > 0 ? 1.5 : 0, m.shareTokens)}%;background:${m.color}"></div>
+        </div>
+      </div>
+    `
+    )
+    .join("");
+
   const donutCard = `
     <div class="card">
       <div class="card-head">
         <div class="card-title">用量分布</div>
         <div class="card-sub">${models.length} 个模型</div>
       </div>
-      <div class="donuts-row">
-        ${renderDonut(models, "tokens", fmtTokens(k.totalTokens, 2, s), "Token", s)}
-        ${renderDonut(models, "costUsd", fmtCost(k.costUsd, s), s.currency === "cny" ? "费用 (CNY)" : "费用 (USD)", s)}
-      </div>
-      <div class="table-wrap">
-        <table class="legend-table">
-          <thead>
-            <tr>
-              <th>模型</th>
-              <th class="r">Token</th>
-              <th class="r">占比</th>
-              <th class="r">费用</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${
-              models
-                .map(
-                  (m) => `
-                <tr>
-                  <td>
-                    <span class="model-dot" style="background:${m.color};margin-right:6px"></span>
-                    <strong>${esc(m.label)}</strong>
-                  </td>
-                  <td class="r num">${fmtTokens(m.tokens, 2, s)}</td>
-                  <td class="r num" style="color:var(--fg-muted)">${m.shareTokens}%</td>
-                  <td class="r num">
-                    ${esc(fmtCost(m.costUsd, s))}
-                    ${s.currency === "dual" ? `<span style="color:var(--fg-muted);font-size:11px;margin-left:4px">(${fmtCny(m.costUsd, s.usdToCny, 0)})</span>` : ""}
-                  </td>
-                </tr>
-              `
-                )
-                .join("") || `<tr><td colspan="4" class="empty-state">暂无数据</td></tr>`
-            }
-          </tbody>
-        </table>
+      <div class="dist-layout">
+        <div class="donuts-row">
+          ${renderDonut(models, "tokens", fmtTokens(k.totalTokens, 2, s), "Token", s)}
+          ${renderDonut(models, "costUsd", fmtCost(k.costUsd, s), s.currency === "cny" ? "费用 (CNY)" : "费用 (USD)", s)}
+        </div>
+        <div class="dist-list">
+          ${distItemsHtml || `<div class="empty-state">暂无数据</div>`}
+        </div>
       </div>
     </div>
   `;
@@ -1072,7 +1068,12 @@ function renderTasksTab(snap) {
         `;
       })
       .join("");
-    return `<div class="card">${modeSwitch}${cards || `<div class="empty-state">暂无任务</div>`}</div>`;
+    return `
+      <div class="card list-card">
+        <div class="list-card-head">${modeSwitch}</div>
+        <div class="list-card-body" data-preserve-scroll="tasks">${cards || `<div class="empty-state">暂无任务</div>`}</div>
+      </div>
+    `;
   }
 
   const rows = data.sessions
@@ -1096,9 +1097,9 @@ function renderTasksTab(snap) {
     .join("");
 
   return `
-    <div class="card">
-      ${modeSwitch}
-      <div class="table-wrap">
+    <div class="card list-card">
+      <div class="list-card-head">${modeSwitch}</div>
+      <div class="list-card-body" data-preserve-scroll="tasks-sessions">
         <table class="data-table">
           <thead>
             <tr>
@@ -1166,9 +1167,9 @@ function renderRequestsTab(snap) {
     .join("");
 
   return `
-    <div class="card">
-      ${toolbar}
-      <div class="table-wrap">
+    <div class="card list-card">
+      <div class="list-card-head">${toolbar}</div>
+      <div class="list-card-body" data-preserve-scroll="requests">
         <table class="data-table">
           <thead>
             <tr>
@@ -1187,11 +1188,13 @@ function renderRequestsTab(snap) {
           <tbody>${rows || `<tr><td colspan="10" class="empty-state">没有匹配的请求记录</td></tr>`}</tbody>
         </table>
       </div>
-      <div class="pager">
-        <span class="num">共 ${fmtInt(data.total)} 条 · 第 ${data.page} / ${data.totalPages} 页</span>
-        <div class="filter-group">
-          <button class="btn sm" data-action="req-page" data-val="${Math.max(1, data.page - 1)}" ${data.page <= 1 ? "disabled" : ""}>上一页</button>
-          <button class="btn sm" data-action="req-page" data-val="${Math.min(data.totalPages, data.page + 1)}" ${data.page >= data.totalPages ? "disabled" : ""}>下一页</button>
+      <div class="list-card-foot">
+        <div class="pager" style="margin-top:0">
+          <span class="num">共 ${fmtInt(data.total)} 条 · 第 ${data.page} / ${data.totalPages} 页</span>
+          <div class="filter-group">
+            <button class="btn sm" data-action="req-page" data-val="${Math.max(1, data.page - 1)}" ${data.page <= 1 ? "disabled" : ""}>上一页</button>
+            <button class="btn sm" data-action="req-page" data-val="${Math.min(data.totalPages, data.page + 1)}" ${data.page >= data.totalPages ? "disabled" : ""}>下一页</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1234,39 +1237,45 @@ function renderErrorsTab(snap) {
     .join("");
 
   return `
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title">错误事件 (${data.errors.length + data.stopErrors.length})</div>
-        <button class="btn sm" data-action="copy-diagnostics">${icon("copy", "sm")}<span>复制诊断摘要</span></button>
+    <div class="split-locked-stack two-equal">
+      <div class="card list-card">
+        <div class="list-card-head">
+          <div class="card-head">
+            <div class="card-title">错误事件 (${data.errors.length + data.stopErrors.length})</div>
+            <button class="btn sm" data-action="copy-diagnostics">${icon("copy", "sm")}<span>复制诊断摘要</span></button>
+          </div>
+        </div>
+        <div class="list-card-body" data-preserve-scroll="err-list">
+          <table class="data-table">
+            <thead><tr><th>时间</th><th>会话</th><th>模型</th><th>状态</th><th>错误信息</th></tr></thead>
+            <tbody>${errRows || `<tr><td colspan="5"><div class="empty-state">${icon("checkCircle", "lg")}<span>当前范围内未发现报错请求</span></div></td></tr>`}</tbody>
+          </table>
+        </div>
       </div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead><tr><th>时间</th><th>会话</th><th>模型</th><th>状态</th><th>错误信息</th></tr></thead>
-          <tbody>${errRows || `<tr><td colspan="5"><div class="empty-state">${icon("checkCircle", "lg")}<span>当前范围内未发现报错请求</span></div></td></tr>`}</tbody>
-        </table>
-      </div>
-    </div>
 
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title">短间隔异常掉缓存 (${data.anomalies.length})</div>
-        <div class="card-sub">排除冷启动与压缩，捕获 4 分钟内缓存突降 &gt;50% 的调用</div>
-      </div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>时间</th>
-              <th>会话</th>
-              <th>模型</th>
-              <th class="r">上步上下文</th>
-              <th class="r">本步重算输入</th>
-              <th class="r">本步缓存读</th>
-              <th class="r">本步费用</th>
-            </tr>
-          </thead>
-          <tbody>${anomRows || `<tr><td colspan="7"><div class="empty-state">${icon("shieldCheck", "lg")}<span>未检测到异常掉缓存记录</span></div></td></tr>`}</tbody>
-        </table>
+      <div class="card list-card">
+        <div class="list-card-head">
+          <div class="card-head">
+            <div class="card-title">短间隔异常掉缓存 (${data.anomalies.length})</div>
+            <div class="card-sub">排除冷启动与压缩，捕获 4 分钟内缓存突降 &gt;50% 的调用</div>
+          </div>
+        </div>
+        <div class="list-card-body" data-preserve-scroll="anom-list">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>会话</th>
+                <th>模型</th>
+                <th class="r">上步上下文</th>
+                <th class="r">本步重算输入</th>
+                <th class="r">本步缓存读</th>
+                <th class="r">本步费用</th>
+              </tr>
+            </thead>
+            <tbody>${anomRows || `<tr><td colspan="7"><div class="empty-state">${icon("shieldCheck", "lg")}<span>未检测到异常掉缓存记录</span></div></td></tr>`}</tbody>
+          </table>
+        </div>
       </div>
     </div>
   `;
@@ -1301,66 +1310,72 @@ function renderPricingTab(snap) {
     .join("");
 
   return `
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title">订阅计划 & 汇率设置</div>
-        <button class="btn solid sm" data-action="save-sub-pricing">保存并实时重算</button>
+    <div class="split-locked-stack">
+      <div class="card card-fixed">
+        <div class="card-head">
+          <div class="card-title">订阅计划 & 汇率设置</div>
+          <button class="btn solid sm" data-action="save-sub-pricing">保存并实时重算</button>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label>订阅名称</label>
+            <input class="text-input" id="sub-plan-name" value="${esc(sub.planName || "Google AI Ultra")}" />
+          </div>
+          <div class="field">
+            <label>档位徽章</label>
+            <input class="text-input" id="sub-tier-badge" value="${esc(sub.tierBadge || "Ultra · 5x")}" />
+          </div>
+          <div class="field">
+            <label>月费 (USD)</label>
+            <input class="text-input num" id="sub-monthly-usd" type="number" step="1" value="${sub.monthlyUsd ?? 99}" />
+          </div>
+          <div class="field">
+            <label>USD → CNY 参考汇率</label>
+            <input class="text-input num" id="cfg-fx" type="number" step="0.01" value="${s.usdToCny ?? 6.67}" />
+          </div>
+          <div class="field">
+            <label>Claude 缓存写倍率</label>
+            <select class="select-pill" id="cfg-claude-mult">
+              <option value="1.25" ${Number(s.claudeCacheWriteMultiplier) === 1.25 ? "selected" : ""}>1.25x (5分钟缓存写)</option>
+              <option value="1" ${Number(s.claudeCacheWriteMultiplier) === 1 ? "selected" : ""}>1.0x (基础输入价)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>每月账单日 (1-28)</label>
+            <input class="text-input num" id="sub-billing-day" type="number" min="1" max="28" value="${sub.billingDay ?? 1}" />
+          </div>
+        </div>
       </div>
-      <div class="form-grid">
-        <div class="field">
-          <label>订阅名称</label>
-          <input class="text-input" id="sub-plan-name" value="${esc(sub.planName || "Google AI Ultra")}" />
-        </div>
-        <div class="field">
-          <label>档位徽章</label>
-          <input class="text-input" id="sub-tier-badge" value="${esc(sub.tierBadge || "Ultra · 5x")}" />
-        </div>
-        <div class="field">
-          <label>月费 (USD)</label>
-          <input class="text-input num" id="sub-monthly-usd" type="number" step="1" value="${sub.monthlyUsd ?? 99}" />
-        </div>
-        <div class="field">
-          <label>USD → CNY 参考汇率</label>
-          <input class="text-input num" id="cfg-fx" type="number" step="0.01" value="${s.usdToCny ?? 6.67}" />
-        </div>
-        <div class="field">
-          <label>Claude 缓存写倍率</label>
-          <select class="select-pill" id="cfg-claude-mult">
-            <option value="1.25" ${Number(s.claudeCacheWriteMultiplier) === 1.25 ? "selected" : ""}>1.25x (5分钟缓存写)</option>
-            <option value="1" ${Number(s.claudeCacheWriteMultiplier) === 1 ? "selected" : ""}>1.0x (基础输入价)</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>每月账单日 (1-28)</label>
-          <input class="text-input num" id="sub-billing-day" type="number" min="1" max="28" value="${sub.billingDay ?? 1}" />
-        </div>
-      </div>
-    </div>
 
-    <div class="card">
-      <div class="card-head">
-        <div class="card-title">模型参考单价（美元 / 百万 Tokens）</div>
-        <div class="filter-group">
-          <button class="btn sm" data-action="reset-pricing">恢复默认</button>
-          <button class="btn solid sm" data-action="save-sub-pricing">保存单价</button>
+      <div class="card list-card">
+        <div class="list-card-head">
+          <div class="card-head">
+            <div class="card-title">模型参考单价（美元 / 百万 Tokens）</div>
+            <div class="filter-group">
+              <button class="btn sm" data-action="reset-pricing">恢复默认</button>
+              <button class="btn solid sm" data-action="save-sub-pricing">保存单价</button>
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>模型</th>
-              <th>系列</th>
-              <th class="r">输入 ($/1M)</th>
-              <th class="r">缓存读 ($/1M)</th>
-              <th class="r">输出 ($/1M)</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-      <div class="note-box">
-        内置时间分段定价：Gemini 4 Carbon / Argon 在 2026-12-01 前自动按推广价 ($2 / $0.10 / $10) 计费，之后按正式价 ($4 / $0.20 / $20) 计费。
+        <div class="list-card-body" data-preserve-scroll="pricing-list">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>模型</th>
+                <th>系列</th>
+                <th class="r">输入 ($/1M)</th>
+                <th class="r">缓存读 ($/1M)</th>
+                <th class="r">输出 ($/1M)</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="list-card-foot" style="padding-top:6px;margin-top:4px">
+          <div style="font-size:11px;color:var(--fg-muted)">
+            内置时间分段定价：Gemini 4 Carbon / Argon 在 2026-12-01 前按推广价 ($2 / $0.10 / $10)，之后按正式价 ($4 / $0.20 / $20)。
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -1506,11 +1521,15 @@ function render(opts = {}) {
   const shouldAnimate = animate || !state.hasRenderedOnce;
   state.hasRenderedOnce = true;
 
-  // Preserve current vertical scroll position of main pane across live updates
+  // Preserve current vertical scroll position of main pane and list containers across live updates
   const prevMain = document.getElementById("main-scroll");
   const prevScrollTop = prevMain ? prevMain.scrollTop : 0;
   const prevNav = document.getElementById("nav-scroll");
   const prevNavLeft = prevNav ? prevNav.scrollLeft : 0;
+  const prevListScrolls = new Map();
+  document.querySelectorAll("[data-preserve-scroll]").forEach((el) => {
+    prevListScrolls.set(el.getAttribute("data-preserve-scroll"), el.scrollTop);
+  });
 
   const compactMode = state.surface === "monitor" || (state.isNarrow && !state.surfaceLockedByUser);
   root.classList.toggle("is-compact", compactMode);
@@ -1529,14 +1548,16 @@ function render(opts = {}) {
         <div class="app-header-inner">
           <div class="topbar">
             <div class="brand">
-              <span class="brand-dot ${state.liveEnabled ? "live" : "idle"}"></span>
+              <span class="brand-dot ${state.liveEnabled ? "live" : "idle"}" title="${inflightCount > 0 ? `${inflightCount} 运行中` : "实时就绪"}"></span>
               <span class="brand-title">Pulse</span>
               <span class="status-chip ${inflightCount > 0 ? "running" : ""} ${flashCls}">${inflightCount > 0 ? `${inflightCount} 运行中` : "实时就绪"}</span>
             </div>
             <div class="topbar-actions">
               <button class="icon-btn" data-action="toggle-unit" title="切换中文/英文计量单位">${unitLabel}</button>
               <button class="icon-btn" data-action="cycle-currency" title="切换币种">${curLabel}</button>
-              <button class="icon-btn ${state.liveEnabled ? "active" : ""}" data-action="toggle-live" title="切换实时自动刷新">${state.liveEnabled ? "实时" : "暂停"}</button>
+              <button class="icon-btn ${state.liveEnabled ? "active" : ""}" data-action="toggle-live" title="切换实时自动刷新">
+                <i class="dot ${state.liveEnabled ? "ok" : "muted"}"></i><span class="hide-xs">${state.liveEnabled ? "实时" : "暂停"}</span>
+              </button>
               <button class="icon-btn square ${state.isRefreshing ? "is-spinning" : ""}" data-action="refresh" title="立即刷新">${icon("refresh", "sm")}</button>
             </div>
           </div>
@@ -1554,7 +1575,7 @@ function render(opts = {}) {
     return;
   }
 
-  // Full Dashboard Mode (Fixed Topbar + Nav + Filter Bar; Scrollable Main)
+  // Full Dashboard Mode (Fixed Topbar + Nav + Filter Bar; Scrollable Main or List-Locked)
   const tabs = [
     ["overview", "概览"],
     ["monitor", "实时监控"],
@@ -1597,6 +1618,8 @@ function render(opts = {}) {
   else if (state.tab === "pricing") bodyHtml = renderPricingTab(snap);
   else if (state.tab === "settings") bodyHtml = renderSettingsTab(snap);
 
+  const isListLocked = ["tasks", "requests", "errors", "pricing"].includes(state.tab);
+
   let subHeaderHtml = "";
   if (state.tab === "monitor") {
     subHeaderHtml = renderSessionSwitcher(snap, false);
@@ -1623,21 +1646,22 @@ function render(opts = {}) {
       <div class="app-header-inner">
         <div class="topbar">
           <div class="brand">
-            <span class="brand-dot ${state.liveEnabled ? "live" : "idle"}"></span>
+            <span class="brand-dot ${state.liveEnabled ? "live" : "idle"}" title="${inflightCount > 0 ? `${inflightCount} 运行中` : "实时就绪"}"></span>
             <span class="brand-title">${state.isNarrow ? "Pulse" : "Antigravity Pulse"}</span>
             <span class="status-chip ${inflightCount > 0 ? "running" : ""} ${flashCls}">${inflightCount > 0 ? `${inflightCount} 运行中` : "实时就绪"}</span>
           </div>
           <div class="topbar-actions">
             ${
               state.isNarrow
-                ? `<button class="icon-btn" data-action="switch-surface" data-val="monitor" title="切回紧凑监控面板">${icon("arrowLeft", "sm")}<span>紧凑</span></button>`
+                ? `<button class="icon-btn" data-action="switch-surface" data-val="monitor" title="切回紧凑监控面板">${icon("arrowLeft", "sm")}<span class="hide-xs">紧凑</span></button>`
                 : ""
             }
             <button class="icon-btn" data-action="toggle-unit" title="切换中文/英文计量单位">${unitLabel}</button>
             <button class="icon-btn" data-action="cycle-currency" title="切换美元/人民币显示">${curLabel}</button>
             <button class="icon-btn ${state.liveEnabled ? "active" : ""}" data-action="toggle-live" title="切换自动增量刷新">
-              <i class="dot ${state.liveEnabled ? "ok" : "muted"}"></i><span>${state.liveEnabled ? "实时" : "暂停"}</span>
+              <i class="dot ${state.liveEnabled ? "ok" : "muted"}"></i><span class="hide-xs">${state.liveEnabled ? "实时" : "暂停"}</span>
             </button>
+            <button class="icon-btn square" data-action="copy-markdown" title="复制 Markdown 用量战报">${icon("copy", "sm")}</button>
             <button class="icon-btn square ${state.isRefreshing ? "is-spinning" : ""}" data-action="refresh" title="立即刷新">${icon("refresh", "sm")}</button>
           </div>
         </div>
@@ -1648,7 +1672,7 @@ function render(opts = {}) {
       </div>
     </header>
 
-    <main class="app-main" id="main-scroll">
+    <main class="app-main ${isListLocked ? "is-list-locked" : ""}" id="main-scroll">
       <div class="app-main-inner ${enterCls}">
         ${bodyHtml}
       </div>
@@ -1658,7 +1682,18 @@ function render(opts = {}) {
   const nextMain = document.getElementById("main-scroll");
   if (nextMain) nextMain.scrollTop = prevScrollTop;
   const nextNav = document.getElementById("nav-scroll");
-  if (nextNav) nextNav.scrollLeft = prevNavLeft;
+  if (nextNav) {
+    nextNav.scrollLeft = prevNavLeft;
+    // Keep active nav pill smoothly visible without edge clipping on narrow viewports
+    const activePill = nextNav.querySelector(".nav-pill.active");
+    if (activePill && shouldAnimate) {
+      activePill.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
+    }
+  }
+  document.querySelectorAll("[data-preserve-scroll]").forEach((el) => {
+    const key = el.getAttribute("data-preserve-scroll");
+    if (prevListScrolls.has(key)) el.scrollTop = prevListScrolls.get(key);
+  });
 
   animatePillSliders();
   bindHeatmapScrollAndPin();
@@ -1690,13 +1725,82 @@ function buildMarkdownReport(snap) {
   return lines.join("\n");
 }
 
-async function copyText(text, msg) {
+function openCopyModal(text, title = "复制内容") {
+  const modal = document.getElementById("copy-modal");
+  const titleEl = document.getElementById("copy-modal-title");
+  const ta = document.getElementById("copy-modal-text");
+  if (!modal || !ta) return;
+  if (titleEl) titleEl.textContent = title;
+  ta.value = text;
+  modal.classList.add("is-visible");
+  requestAnimationFrame(() => {
+    ta.focus();
+    ta.select();
+  });
+}
+
+function closeCopyModal() {
+  document.getElementById("copy-modal")?.classList.remove("is-visible");
+}
+
+function initCopyModal() {
+  const modal = document.getElementById("copy-modal");
+  if (!modal) return;
+  document.getElementById("copy-modal-close")?.addEventListener("click", closeCopyModal);
+  document.getElementById("copy-modal-done")?.addEventListener("click", closeCopyModal);
+  document.getElementById("copy-modal-select")?.addEventListener("click", () => {
+    const ta = document.getElementById("copy-modal-text");
+    if (ta) {
+      ta.focus();
+      ta.select();
+    }
+  });
+  modal.addEventListener("click", (ev) => {
+    if (ev.target === modal) closeCopyModal();
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") closeCopyModal();
+  });
+}
+
+function execCommandCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.position = "fixed";
+  ta.style.top = "-9999px";
+  ta.style.left = "-9999px";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  let ok = false;
   try {
-    await navigator.clipboard.writeText(text);
-    showToast(msg);
+    ok = document.execCommand("copy");
   } catch {
-    showToast("当前沙箱限制剪贴板访问");
+    ok = false;
   }
+  document.body.removeChild(ta);
+  return ok;
+}
+
+async function copyText(text, msg, modalTitle = "复制内容") {
+  // Tier 1: Synchronous execCommand inside user gesture (works reliably inside sandboxed Electron iframes)
+  if (execCommandCopy(text)) {
+    showToast(msg);
+    return;
+  }
+  // Tier 2: Async Clipboard API
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      showToast(msg);
+      return;
+    }
+  } catch {}
+  // Tier 3: Interactive auto-selected copy modal fallback
+  openCopyModal(text, modalTitle);
 }
 
 function initEvents() {
@@ -1902,6 +2006,7 @@ function initEvents() {
 // ---------------- Bootstrap (MCP Apps Lifecycle) ----------------
 
 initTooltip();
+initCopyModal();
 initEvents();
 
 app.ontoolinput = () => {};
