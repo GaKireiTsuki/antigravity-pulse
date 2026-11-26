@@ -5,6 +5,7 @@
 
 export const DEFAULT_SETTINGS = {
   currency: "dual", // "usd" | "cny" | "dual"
+  unitFormat: "zh", // "zh" (万/亿) | "en" (K/M/B)
   usdToCny: 6.67,
   claudeCacheWriteMultiplier: 1.25, // 1.25 for 5m cache write, 1.0 for base input
   subscription: {

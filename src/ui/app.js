@@ -4,6 +4,39 @@ import {
   applyHostStyleVariables,
 } from "@modelcontextprotocol/ext-apps";
 
+// ---------------- Crisp Vector Icon Set (Zero Emoji) ----------------
+
+const ICONS = {
+  pulse: `<polyline points="2 12 6 12 9 4 13 20 16 10 18 12 22 12"/>`,
+  zap: `<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>`,
+  clock: `<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/>`,
+  activity: `<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>`,
+  coins: `<circle cx="9" cy="9" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/>`,
+  arrows: `<path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/>`,
+  layers: `<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 12 12 17 22 12"/><polyline points="2 17 12 22 22 17"/>`,
+  receipt: `<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 7h8"/><path d="M8 11h8"/><path d="M8 15h5"/>`,
+  sparkles: `<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>`,
+  refresh: `<path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/><path d="M8 16H3v5"/>`,
+  chevronRight: `<polyline points="9 18 15 12 9 6"/>`,
+  chevronDown: `<polyline points="6 9 12 15 18 9"/>`,
+  subBranch: `<polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/>`,
+  checkCircle: `<circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/>`,
+  layoutPanel: `<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/>`,
+  gauge: `<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>`,
+  copy: `<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>`,
+  database: `<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/>`,
+  arrowUp: `<path d="m18 15-6-6-6 6"/>`,
+  arrowDown: `<path d="m6 9 6 6 6-6"/>`,
+  arrowRight: `<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>`,
+  arrowLeft: `<path d="M19 12H5"/><path d="m12 19-7-7 7-7"/>`,
+  shieldCheck: `<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>`,
+};
+
+function icon(name, cls = "") {
+  const body = ICONS[name] || "";
+  return `<svg class="ico ${cls}" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
+}
+
 // ---------------- Formatters ----------------
 
 function esc(str) {
@@ -15,16 +48,35 @@ function esc(str) {
     .replace(/'/g, "&#39;");
 }
 
-function fmtTokens(n, digits = 2) {
+function getUnitFormat(settings) {
+  return (settings || state.snapshot?.settings)?.unitFormat || "zh";
+}
+
+function fmtTokens(n, digits = 2, settings = null) {
   const v = Number(n || 0);
+  const unit = getUnitFormat(settings);
+  if (unit === "zh") {
+    if (v >= 1e8) return `${(v / 1e8).toFixed(digits)}亿`;
+    if (v >= 1e4) {
+      const w = v / 1e4;
+      return w >= 100 ? `${w.toFixed(1)}万` : `${w.toFixed(Math.min(2, digits))}万`;
+    }
+    return v.toLocaleString("zh-CN");
+  }
   if (v >= 1e9) return `${(v / 1e9).toFixed(digits)}B`;
   if (v >= 1e6) return `${(v / 1e6).toFixed(digits)}M`;
   if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
   return v.toLocaleString("en-US");
 }
 
-function fmtCtx(n) {
+function fmtCtx(n, settings = null) {
   const v = Number(n || 0);
+  const unit = getUnitFormat(settings);
+  if (unit === "zh") {
+    if (v >= 1e8) return `${(v / 1e8).toFixed(2)}亿`;
+    if (v >= 1e4) return `${(v / 1e4).toFixed(1)}万`;
+    return v.toLocaleString("zh-CN");
+  }
   if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
   if (v >= 1e3) return `${(v / 1e3).toFixed(1)}k`;
   return String(v);
@@ -114,13 +166,15 @@ function hitClass(pct) {
 const state = {
   surface: "dashboard", // "dashboard" | "monitor"
   surfaceLockedByUser: false,
-  tab: "overview", // overview | monitor | tasks | requests | errors | pricing | settings
+  tab: "overview",
   range: "all",
   modelFilter: "all",
   selectedCid: null,
-  heatmapMetric: "tokens", // tokens | requests | cost
+  heatmapMetric: "tokens",
+  heatmapPinnedRight: true,
+  heatmapScrollLeft: null,
   modelSort: { key: "tokens", dir: "desc" },
-  taskMode: "roots", // roots | sessions
+  taskMode: "roots",
   expandedRoots: new Set(),
   reqQuery: { filter: "all", search: "", page: 1 },
   liveEnabled: true,
@@ -131,7 +185,7 @@ const state = {
   tasksData: null,
   requestsData: null,
   errorsData: null,
-  isNarrow: window.innerWidth < 720,
+  isNarrow: window.innerWidth < 680,
   lastToastTimer: null,
   connected: false,
 };
@@ -221,13 +275,11 @@ async function fetchSnapshot(force = false) {
     if (!state.selectedCid && data.latestSession?.cid) {
       state.selectedCid = data.latestSession.cid;
     }
-    // Avoid disrupting active text inputs on pricing/settings tabs during background poll
     if (!force && (state.tab === "pricing" || state.tab === "settings")) {
       updateLiveBadge(data.inflightCount || 0);
       return;
     }
     render();
-    // Refresh secondary tab data if open
     if (state.tab === "tasks") fetchTasks();
     if (state.tab === "requests") fetchRequests();
     if (state.tab === "errors") fetchErrors();
@@ -342,7 +394,7 @@ function restartPollTimer() {
 function renderSparkline(values, color = "var(--accent)") {
   if (!values || values.length < 2) return "";
   const w = 180;
-  const h = 30;
+  const h = 28;
   const max = Math.max(...values, 1e-6);
   const step = w / (values.length - 1);
   const pts = values.map((v, i) => {
@@ -400,7 +452,7 @@ function renderHeatmap(days, metric, settings) {
     const lvl = levelOf(v);
 
     const tip = esc(
-      `<strong>${d.date}</strong><br/>Token: ${fmtTokens(d.tokens)}<br/>请求: ${fmtInt(d.requests)} 次<br/>缓存命中: ${d.cacheHitRate}%<br/>费用: ${fmtCost(d.cost, settings)}`
+      `<strong>${d.date}</strong><br/>Token: ${fmtTokens(d.tokens, 2, settings)}<br/>请求: ${fmtInt(d.requests)} 次<br/>缓存命中: ${d.cacheHitRate}%<br/>费用: ${fmtCost(d.cost, settings)}`
     );
     rects += `<rect class="heat-cell" x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2.5" fill="var(--heat-${lvl})" data-tip="${tip}"></rect>`;
 
@@ -418,14 +470,14 @@ function renderHeatmap(days, metric, settings) {
   }
 
   return `
-    <div class="heatmap-wrap">
+    <div class="heatmap-wrap" id="heatmap-scroll">
       <svg class="heatmap-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="53周用量热力图">
         ${rects}
         ${monthLabels}
       </svg>
     </div>
     <div class="heatmap-legend">
-      <span>过去 53 周按日分布（本地时区）</span>
+      <span>过去 53 周按日分布（右侧为最新日期）</span>
       <span class="heat-scale">
         <span>少</span>
         <i class="heat-swatch" style="background:var(--heat-0)"></i>
@@ -440,15 +492,15 @@ function renderHeatmap(days, metric, settings) {
 }
 
 function renderDonut(models, valueKey, centerVal, centerLabel, settings) {
-  const r = 64;
-  const cx = 88;
-  const cy = 88;
+  const r = 60;
+  const cx = 82;
+  const cy = 82;
   const circ = 2 * Math.PI * r;
   const total = models.reduce((s, m) => s + Number(m[valueKey] || 0), 0);
 
   let segs = "";
   if (total <= 0) {
-    segs = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--bg-elevated)" stroke-width="20"></circle>`;
+    segs = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--bg-elevated)" stroke-width="19"></circle>`;
   } else {
     let offset = 0;
     for (const m of models) {
@@ -457,26 +509,54 @@ function renderDonut(models, valueKey, centerVal, centerLabel, settings) {
       const frac = val / total;
       const dash = Math.max(2, frac * circ);
       const pct = (frac * 100).toFixed(1);
-      const valStr = valueKey === "costUsd" ? fmtCost(val, settings) : fmtTokens(val);
+      const valStr = valueKey === "costUsd" ? fmtCost(val, settings) : fmtTokens(val, 2, settings);
       const tip = esc(`<strong>${m.label}</strong><br/>${valStr} (${pct}%)`);
-      segs += `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${m.color}" stroke-width="20" stroke-dasharray="${dash} ${circ - dash}" stroke-dashoffset="${-offset}" transform="rotate(-90 ${cx} ${cy})" data-tip="${tip}"></circle>`;
+      segs += `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${m.color}" stroke-width="19" stroke-dasharray="${dash} ${circ - dash}" stroke-dashoffset="${-offset}" transform="rotate(-90 ${cx} ${cy})" data-tip="${tip}"></circle>`;
       offset += frac * circ;
     }
   }
 
   return `
     <div class="donut-box">
-      <svg class="donut-svg" viewBox="0 0 176 176" role="img" aria-label="${esc(centerLabel)}">
-        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--bg-elevated)" stroke-width="20"></circle>
+      <svg class="donut-svg" viewBox="0 0 164 164" role="img" aria-label="${esc(centerLabel)}">
+        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--bg-elevated)" stroke-width="19"></circle>
         ${segs}
         <text x="${cx}" y="${cy - 2}" text-anchor="middle" class="donut-center-val num">${esc(centerVal)}</text>
-        <text x="${cx}" y="${cy + 16}" text-anchor="middle" class="donut-center-lbl">${esc(centerLabel)}</text>
+        <text x="${cx}" y="${cy + 15}" text-anchor="middle" class="donut-center-lbl">${esc(centerLabel)}</text>
       </svg>
     </div>
   `;
 }
 
 // ---------------- Section Renderers ----------------
+
+function renderSessionSwitcher(snap, showDashboardSwitch) {
+  const ls = snap.latestSession;
+  const s = snap.settings;
+  const sessionOptions = (snap.recentSessions || [])
+    .map((item) => {
+      const sel = item.cid === ls?.cid ? "selected" : "";
+      const prefix = item.isRunning ? "[运行中] " : item.depth > 0 ? "└ " : "";
+      const label = `${prefix}${item.title.slice(0, 26)} (${fmtTokens(item.tokens, 1, s)})`;
+      return `<option value="${esc(item.cid)}" ${sel}>${esc(label)}</option>`;
+    })
+    .join("");
+
+  return `
+    <div class="filter-bar">
+      <select class="select-pill" data-action="select-session" style="flex:1 1 160px;width:100%">
+        ${sessionOptions || `<option value="">暂无会话</option>`}
+      </select>
+      ${
+        showDashboardSwitch
+          ? `<button class="btn primary sm" data-action="switch-surface" data-val="dashboard">
+              <span>完整看板</span>${icon("arrowRight", "sm")}
+            </button>`
+          : ""
+      }
+    </div>
+  `;
+}
 
 function renderMonitorContent(snap, compactMode) {
   const ls = snap.latestSession;
@@ -486,16 +566,6 @@ function renderMonitorContent(snap, compactMode) {
   const sub = snap.subscription;
   const rw = snap.rollingWindows;
 
-  const sessionOptions = (snap.recentSessions || [])
-    .map((item) => {
-      const sel = item.cid === ls?.cid ? "selected" : "";
-      const prefix = item.isRunning ? "● " : item.depth > 0 ? "↳ " : "";
-      const label = `${prefix}${item.title.slice(0, 28)} (${fmtTokens(item.tokens, 1)})`;
-      return `<option value="${esc(item.cid)}" ${sel}>${esc(label)}</option>`;
-    })
-    .join("");
-
-  // 4 Mini KPI Cards (Figure 1 top)
   const latestTpsStr = ls?.lastStepTps ? `${ls.lastStepTps} tok/s` : k.avgTps ? `${k.avgTps} tok/s` : "待采样";
   const latestModelShort = ctx?.modelShort || ls?.cid?.slice(0, 8) || "--";
   const durStr = ls?.lastStepDurationMs ? fmtDuration(ls.lastStepDurationMs) : fmtDuration(k.avgDurationMs);
@@ -503,14 +573,14 @@ function renderMonitorContent(snap, compactMode) {
     ? `均值 ${fmtDuration(ls.avgDurationMs)}`
     : k.timedCount > 0
       ? `全局均值 ${fmtDuration(k.avgDurationMs)}`
-      : "新请求由 Hooks 自动记录";
+      : "由 Hooks 自动采集";
   const avgTpsStr = ls?.avgTps ? `${ls.avgTps} tok/s` : k.avgTps ? `${k.avgTps} tok/s` : "--";
   const avgTpsSub =
     ls?.timedSteps > 0
       ? `有效 ${ls.timedSteps}/${ls.steps} 步`
       : k.timedCount > 0
         ? `全局有效 ${k.timedCount} 步`
-        : "安装后新调用自动统计";
+        : "等待新调用采样";
 
   const stepCostStr = ls ? fmtCost(ls.lastStepCostUsd, s, 3) : "--";
   const cumCostSub = ls
@@ -520,36 +590,35 @@ function renderMonitorContent(snap, compactMode) {
   const kpiCardsHtml = `
     <div class="monitor-grid">
       <div class="mini-kpi">
-        <div class="mini-kpi-top"><span>输出速度</span><span>⚡</span></div>
+        <div class="mini-kpi-top"><span>输出速度</span>${icon("zap", "sm muted")}</div>
         <div class="mini-kpi-val cyan num">${esc(latestTpsStr)}</div>
         <div class="mini-kpi-sub">${esc(latestModelShort)}</div>
       </div>
       <div class="mini-kpi">
-        <div class="mini-kpi-top"><span>请求耗时</span><span>⏱</span></div>
+        <div class="mini-kpi-top"><span>请求耗时</span>${icon("clock", "sm muted")}</div>
         <div class="mini-kpi-val num">${esc(durStr)}</div>
         <div class="mini-kpi-sub">${esc(avgDurStr)}</div>
       </div>
       <div class="mini-kpi">
-        <div class="mini-kpi-top"><span>平均速度</span><span>〰</span></div>
+        <div class="mini-kpi-top"><span>平均速度</span>${icon("activity", "sm muted")}</div>
         <div class="mini-kpi-val green num">${esc(avgTpsStr)}</div>
         <div class="mini-kpi-sub">${esc(avgTpsSub)}</div>
       </div>
       <div class="mini-kpi">
-        <div class="mini-kpi-top"><span>本次费用</span><span>✦</span></div>
+        <div class="mini-kpi-top"><span>本次费用</span>${icon("coins", "sm muted")}</div>
         <div class="mini-kpi-val num">${esc(stepCostStr)}</div>
         <div class="mini-kpi-sub">${esc(cumCostSub)}</div>
       </div>
     </div>
   `;
 
-  // Context Window Card (Figure 1 middle)
   let ctxCardHtml = `<div class="card"><div class="empty-state">暂无可分析的对话上下文</div></div>`;
   if (ctx) {
     const barSegs = ctx.categories
       .filter((c) => c.tokens > 0)
       .map((c) => {
         const wPct = ctx.contextTokens > 0 ? (c.tokens / ctx.contextTokens) * 100 : 0;
-        const tip = esc(`<strong>${c.label}</strong><br/>${fmtInt(c.tokens)} tokens (${c.percent}%)`);
+        const tip = esc(`<strong>${c.label}</strong><br/>${fmtTokens(c.tokens, 2, s)} (${fmtInt(c.tokens)} tokens · ${c.percent}%)`);
         return `<div class="ctx-seg" style="width:${wPct.toFixed(2)}%;background:${c.color}" data-tip="${tip}"></div>`;
       })
       .join("");
@@ -562,7 +631,7 @@ function renderMonitorContent(snap, compactMode) {
             <span class="ctx-sq" style="background:${c.color}"></span>
             <span>${esc(c.label)}</span>
           </div>
-          <span class="ctx-item-val num">${esc(fmtCtx(c.tokens))}</span>
+          <span class="ctx-item-val num">${esc(fmtCtx(c.tokens, s))}</span>
         </div>
       `
       )
@@ -573,28 +642,28 @@ function renderMonitorContent(snap, compactMode) {
       <div class="card">
         <div class="card-head">
           <div class="card-title">
+            ${icon("layers", "sm muted")}
             <span>上下文窗口</span>
             <span class="badge ${pctBadgeCls} num">${ctx.usagePercent}%</span>
             <span class="badge ok num">缓存 ${ctx.cacheHitRate}%</span>
             ${ctx.checkpointCount > 0 ? `<span class="badge neutral num">压缩 ${ctx.checkpointCount}次</span>` : ""}
           </div>
-          <div class="card-sub num">${fmtCtx(ctx.contextTokens)} / ${fmtCtx(ctx.windowLimit)}</div>
+          <div class="card-sub num">${fmtCtx(ctx.contextTokens, s)} / ${fmtCtx(ctx.windowLimit, s)}</div>
         </div>
         <div class="ctx-bar">${barSegs}</div>
         <div class="ctx-list">${catItems}</div>
         <div class="note-box">
-          总上下文 (${fmtInt(ctx.contextTokens)}) 为 API 实测精确值；各分类基于本地 ${ctx.usedFullTranscript ? "完整对话日志" : "精简日志"} 占比归一化拆解。
+          总上下文 (${fmtInt(ctx.contextTokens)} tokens) 为 API 实测精确值；各分类基于本地 ${ctx.usedFullTranscript ? "完整对话日志" : "精简日志"} 占比归一化拆解。
         </div>
       </div>
     `;
   }
 
-  // Rolling Windows + Subscription ROI Card (Figure 1 bottom)
   const renderWindowRow = (title, w, isClaude = false) => {
     const fillCls =
       w.pct >= 90 ? "danger" : w.pct >= 70 ? "warn" : isClaude ? "claude" : "";
-    const metricText = `${fmtTokens(w.tokens, 1)} (${fmtCost(w.costUsd, s)})`;
-    const rightText = `${fmtResetIn(w.resetInMs)} · 占参考预算 ${w.pct}%`;
+    const metricText = `${fmtTokens(w.tokens, 1, s)} (${fmtCost(w.costUsd, s)})`;
+    const rightText = `${fmtResetIn(w.resetInMs)} · 占预算 ${w.pct}%`;
     return `
       <div>
         <div class="window-row-head">
@@ -617,7 +686,7 @@ function renderMonitorContent(snap, compactMode) {
         ${snap.quotaHints
           .map(
             (q) =>
-              `<span class="badge warn" style="margin-left:6px">${esc(q.modelLabel)} 剩余 ${q.remainingPct}% (${esc(fmtTimeShort(Date.parse(q.resetsAt)))} 重置)</span>`
+              `<span class="badge warn" style="margin-left:4px;margin-top:4px">${esc(q.modelLabel)} 剩余 ${q.remainingPct}% (${esc(fmtTimeShort(Date.parse(q.resetsAt)))} 重置)</span>`
           )
           .join("")}
       </div>`
@@ -626,9 +695,9 @@ function renderMonitorContent(snap, compactMode) {
   const roiHtml = sub?.enabled
     ? `
       <div class="roi-banner">
-        <div>
-          <div style="font-size:12px;color:var(--fg-secondary)">${esc(sub.planName)} (${fmtUsd(sub.monthlyUsd, 0)}/月) 回本进度</div>
-          <div style="font-size:12px;color:var(--fg-muted);margin-top:2px">
+        <div style="min-width:0">
+          <div style="font-size:12px;color:var(--fg-secondary);font-weight:500">${esc(sub.planName)} (${fmtUsd(sub.monthlyUsd, 0)}/月) 回本进度</div>
+          <div style="font-size:11.5px;color:var(--fg-muted);margin-top:2px">
             等价 API ${fmtCost(sub.refCostUsd, s)} ${fmtCostSub(sub.refCostUsd, s)} · 净省 ${fmtCost(Math.max(0, sub.netSavedUsd), s)} · 折合 ${((sub.effectiveDiscountPct || 0) / 10).toFixed(1)} 折
           </div>
         </div>
@@ -640,8 +709,8 @@ function renderMonitorContent(snap, compactMode) {
   const quotaCardHtml = `
     <div class="card">
       <div class="card-head">
-        <div class="card-title">本地滚动消耗 & 订阅回本</div>
-        <div class="card-sub">${esc(sub?.tierBadge || "Local Telemetry")}</div>
+        <div class="card-title">${icon("gauge", "sm muted")}<span>本地滚动消耗 & 订阅回本</span></div>
+        <div class="card-sub">${esc(sub?.tierBadge || "Local")}</div>
       </div>
       ${roiHtml}
       <div class="window-list">
@@ -652,31 +721,15 @@ function renderMonitorContent(snap, compactMode) {
       </div>
       ${quotaHintsHtml}
       <div class="note-box">
-        注：进度条基于本地实际消耗相对自定义参考预算（可在「设置」调整），官方未向本地插件开放服务端实时剩余百分比接口。
+        进度条基于本地实际消耗相对自定义参考预算（可在「设置」调整），官方未向本地插件开放服务端实时剩余百分比接口。
       </div>
-    </div>
-  `;
-
-  const switcherHtml = `
-    <div class="filter-bar" style="margin-bottom:10px">
-      <div class="filter-group" style="flex:1;min-width:0">
-        <select class="select-pill" data-action="select-session" style="max-width:100%;flex:1">
-          ${sessionOptions || `<option value="">暂无会话</option>`}
-        </select>
-      </div>
-      ${
-        compactMode
-          ? `<button class="btn primary sm" data-action="switch-surface" data-val="dashboard">完整看板 →</button>`
-          : ""
-      }
     </div>
   `;
 
   if (compactMode) {
-    return `${switcherHtml}${kpiCardsHtml}${ctxCardHtml}${quotaCardHtml}`;
+    return `${kpiCardsHtml}${ctxCardHtml}${quotaCardHtml}`;
   }
   return `
-    ${switcherHtml}
     ${kpiCardsHtml}
     <div class="two-col">
       <div>${ctxCardHtml}</div>
@@ -690,18 +743,20 @@ function renderOverviewTab(snap) {
   const s = snap.settings;
   const sub = snap.subscription;
   const models = snap.models || [];
+  const perUnitLabel = s.unitFormat === "zh" ? "每百万 Token" : "1M Tokens";
 
-  // Top 4 KPI cards with sparklines (Figure 2 upgraded with Ultra ROI)
   const kpiHtml = `
     <div class="kpi-grid">
       <div class="kpi-card">
         <div>
-          <div class="kpi-label"><span>请求次数</span><span>⇄</span></div>
-          <div class="kpi-value num">${fmtInt(k.requests)}</div>
+          <div class="kpi-label"><span>请求次数</span>${icon("arrows", "sm muted")}</div>
+          <div class="kpi-value-row">
+            <span class="kpi-value num">${fmtInt(k.requests)}</span>
+          </div>
           <div class="kpi-meta">
-            <span class="dot-ok">● ${fmtInt(k.successCount)} 成功</span>
-            <span class="dot-err">● ${fmtInt(k.errorCount)} 错误</span>
-            ${k.anomalyCount > 0 ? `<span class="dot-warn">● ${fmtInt(k.anomalyCount)} 掉缓存</span>` : ""}
+            <span class="kpi-stat-item"><i class="dot ok"></i>${fmtInt(k.successCount)} 成功</span>
+            <span class="kpi-stat-item"><i class="dot err"></i>${fmtInt(k.errorCount)} 错误</span>
+            ${k.anomalyCount > 0 ? `<span class="kpi-stat-item"><i class="dot warn"></i>${fmtInt(k.anomalyCount)} 掉缓存</span>` : ""}
           </div>
         </div>
         <div class="spark-wrap">${renderSparkline(snap.sparklines.requests, "var(--accent)")}</div>
@@ -709,11 +764,13 @@ function renderOverviewTab(snap) {
 
       <div class="kpi-card">
         <div>
-          <div class="kpi-label"><span>累计 Token</span><span>◫</span></div>
-          <div class="kpi-value num">${fmtTokens(k.totalTokens)}</div>
+          <div class="kpi-label"><span>累计 Token</span>${icon("layers", "sm muted")}</div>
+          <div class="kpi-value-row">
+            <span class="kpi-value num">${fmtTokens(k.totalTokens, 2, s)}</span>
+          </div>
           <div class="kpi-meta">
-            <span>${fmtTokens(k.inputTokens + k.cacheReadTokens)} 输入 / ${fmtTokens(k.outputTokens)} 输出</span>
-            <span class="${hitClass(k.cacheHitRate)}">缓存命中 ${k.cacheHitRate}%</span>
+            <span>${fmtTokens(k.inputTokens + k.cacheReadTokens, 2, s)} 输入 / ${fmtTokens(k.outputTokens, 2, s)} 输出</span>
+            <span class="${hitClass(k.cacheHitRate)}">命中 ${k.cacheHitRate}%</span>
           </div>
         </div>
         <div class="spark-wrap">${renderSparkline(snap.sparklines.tokens, "var(--cyan)")}</div>
@@ -721,10 +778,10 @@ function renderOverviewTab(snap) {
 
       <div class="kpi-card">
         <div>
-          <div class="kpi-label"><span>折合 API 费用</span><span>🧾</span></div>
-          <div class="kpi-value num">
-            ${esc(fmtCost(k.costUsd, s))}
-            ${fmtCostSub(k.costUsd, s) ? `<span class="sub-val">${esc(fmtCostSub(k.costUsd, s))}</span>` : ""}
+          <div class="kpi-label"><span>折合 API 费用</span>${icon("receipt", "sm muted")}</div>
+          <div class="kpi-value-row">
+            <span class="kpi-value num">${esc(fmtCost(k.costUsd, s))}</span>
+            ${fmtCostSub(k.costUsd, s) ? `<span class="kpi-sub-val num">${esc(fmtCostSub(k.costUsd, s))}</span>` : ""}
           </div>
           <div class="kpi-meta">
             <span>单次均价 ${esc(fmtCost(k.avgStepCostUsd, s, 3))}</span>
@@ -738,39 +795,41 @@ function renderOverviewTab(snap) {
         <div>
           <div class="kpi-label">
             <span>${esc(sub?.enabled ? `${sub.planName} 回本` : "生成速度")}</span>
-            <span>${sub?.enabled ? "★" : "⚡"}</span>
+            ${icon(sub?.enabled ? "sparkles" : "zap", "sm muted")}
           </div>
           ${
             sub?.enabled
               ? `
-                <div class="kpi-value num" style="color:var(--green)">
-                  ${sub.roiMultiplier}x
-                  <span class="sub-val">${esc(fmtUsd(sub.monthlyUsd, 0))}/月</span>
+                <div class="kpi-value-row">
+                  <span class="kpi-value num" style="color:var(--green)">${sub.roiMultiplier}x</span>
+                  <span class="kpi-sub-val num">${esc(fmtUsd(sub.monthlyUsd, 0))}/月</span>
                 </div>
                 <div class="kpi-meta">
                   <span>净省 ${esc(fmtCost(Math.max(0, sub.netSavedUsd), s, 0))}</span>
-                  <span>相当于 ${((sub.effectiveDiscountPct || 0) / 10).toFixed(1)} 折</span>
+                  <span>约 ${((sub.effectiveDiscountPct || 0) / 10).toFixed(1)} 折</span>
                 </div>
               `
               : `
-                <div class="kpi-value num">${k.avgTps ? `${k.avgTps}` : "--"} <span class="sub-val">tok/s</span></div>
+                <div class="kpi-value-row">
+                  <span class="kpi-value num">${k.avgTps ? `${k.avgTps}` : "--"}</span>
+                  <span class="kpi-sub-val">tok/s</span>
+                </div>
                 <div class="kpi-meta"><span>峰值 ${k.peakTps ? `${k.peakTps} tok/s` : "--"} · 采样 ${k.timedCount} 步</span></div>
               `
           }
         </div>
-        <div style="margin-top:10px">
+        <div style="margin-top:8px">
           <div class="bar-track">
             <div class="bar-fill roi" style="width:${Math.min(100, Math.round((sub?.roiMultiplier || 0) * 20))}%"></div>
           </div>
           <div style="font-size:11px;color:var(--fg-muted);margin-top:4px">
-            折合实际均价 ${fmtUsd(sub?.actualPerMillionUsd || 0, 3)} / 1M Tokens
+            折合实际均价 ${fmtUsd(sub?.actualPerMillionUsd || 0, 3)} / ${perUnitLabel}
           </div>
         </div>
       </div>
     </div>
   `;
 
-  // Heatmap Card (Figure 2 middle)
   const heatmapCard = `
     <div class="card">
       <div class="card-head">
@@ -785,7 +844,6 @@ function renderOverviewTab(snap) {
     </div>
   `;
 
-  // Health Timeline Card (Figure 2 bottom)
   const healthRows = models
     .slice(0, 8)
     .map((m) => {
@@ -817,7 +875,7 @@ function renderOverviewTab(snap) {
     <div class="card">
       <div class="card-head">
         <div class="card-title">模型健康时间线</div>
-        <div class="card-sub num">${k.successRate}% 成功${k.anomalyCount > 0 ? ` · ${k.anomalyCount} 次短间隔掉缓存(黄)` : ""}</div>
+        <div class="card-sub num">${k.successRate}% 成功${k.anomalyCount > 0 ? ` · ${k.anomalyCount} 次掉缓存` : ""}</div>
       </div>
       <div class="health-rows">
         ${healthRows || `<div class="empty-state">当前范围内无请求记录</div>`}
@@ -825,7 +883,6 @@ function renderOverviewTab(snap) {
     </div>
   `;
 
-  // Dual Donut Distribution Card (Figure 3 top)
   const donutCard = `
     <div class="card">
       <div class="card-head">
@@ -833,73 +890,70 @@ function renderOverviewTab(snap) {
         <div class="card-sub">${models.length} 个模型</div>
       </div>
       <div class="donuts-row">
-        ${renderDonut(models, "tokens", fmtTokens(k.totalTokens), "Token", s)}
+        ${renderDonut(models, "tokens", fmtTokens(k.totalTokens, 2, s), "Token", s)}
         ${renderDonut(models, "costUsd", fmtCost(k.costUsd, s), s.currency === "cny" ? "费用 (CNY)" : "费用 (USD)", s)}
       </div>
-      <table class="legend-table">
-        <thead>
-          <tr>
-            <th>模型</th>
-            <th class="r">Token</th>
-            <th class="r">占比</th>
-            <th class="r">费用</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${
-            models
-              .map(
-                (m) => `
-              <tr>
-                <td>
-                  <span class="model-dot" style="background:${m.color};margin-right:7px"></span>
-                  <strong>${esc(m.label)}</strong>
-                  <span style="color:var(--fg-muted);font-size:11px;margin-left:5px">${esc(m.short)}</span>
-                </td>
-                <td class="r num">${fmtTokens(m.tokens)}</td>
-                <td class="r num" style="color:var(--fg-muted)">${m.shareTokens}%</td>
-                <td class="r num">
-                  ${esc(fmtCost(m.costUsd, s))}
-                  ${s.currency === "dual" ? `<span style="color:var(--fg-muted);font-size:11px;margin-left:4px">(${fmtCny(m.costUsd, s.usdToCny, 0)})</span>` : ""}
-                </td>
-              </tr>
-            `
-              )
-              .join("") || `<tr><td colspan="4" class="empty-state">暂无数据</td></tr>`
-          }
-        </tbody>
-      </table>
+      <div class="table-wrap">
+        <table class="legend-table">
+          <thead>
+            <tr>
+              <th>模型</th>
+              <th class="r">Token</th>
+              <th class="r">占比</th>
+              <th class="r">费用</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              models
+                .map(
+                  (m) => `
+                <tr>
+                  <td>
+                    <span class="model-dot" style="background:${m.color};margin-right:6px"></span>
+                    <strong>${esc(m.label)}</strong>
+                  </td>
+                  <td class="r num">${fmtTokens(m.tokens, 2, s)}</td>
+                  <td class="r num" style="color:var(--fg-muted)">${m.shareTokens}%</td>
+                  <td class="r num">
+                    ${esc(fmtCost(m.costUsd, s))}
+                    ${s.currency === "dual" ? `<span style="color:var(--fg-muted);font-size:11px;margin-left:4px">(${fmtCny(m.costUsd, s.usdToCny, 0)})</span>` : ""}
+                  </td>
+                </tr>
+              `
+                )
+                .join("") || `<tr><td colspan="4" class="empty-state">暂无数据</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
     </div>
   `;
 
-  // Sortable Model Table (Figure 3 bottom)
   const sortKey = state.modelSort.key;
   const sortDir = state.modelSort.dir === "asc" ? 1 : -1;
-  const sortedModels = [...models].sort((a, b) => {
-    const av = a[sortKey] ?? -1;
-    const bv = b[sortKey] ?? -1;
-    return (av - bv) * sortDir;
-  });
-  const thArrow = (key) => (sortKey === key ? (state.modelSort.dir === "asc" ? " ↑" : " ↓") : "");
+  const sortedModels = [...models].sort((a, b) => ((a[sortKey] ?? -1) - (b[sortKey] ?? -1)) * sortDir);
+  const thArrow = (key) =>
+    sortKey === key ? icon(state.modelSort.dir === "asc" ? "arrowUp" : "arrowDown", "sm") : "";
 
   const modelTableCard = `
     <div class="card">
       <div class="card-head">
         <div class="card-title">模型数据</div>
-        <div class="card-sub">点击列头可排序 · 速度由 Hooks 自动采集</div>
+        <div class="card-sub">点击列头排序 · 速度由 Hooks 采集</div>
       </div>
       <div class="table-wrap">
         <table class="data-table">
           <thead>
             <tr>
               <th>模型</th>
-              <th class="r sortable" data-action="sort-model" data-val="requests">请求次数${thArrow("requests")}</th>
-              <th class="r sortable" data-action="sort-model" data-val="tokens">Token${thArrow("tokens")}</th>
-              <th class="r sortable" data-action="sort-model" data-val="inputTokens">新增输入${thArrow("inputTokens")}</th>
-              <th class="r sortable" data-action="sort-model" data-val="cacheHitRate">缓存命中${thArrow("cacheHitRate")}</th>
-              <th class="r sortable" data-action="sort-model" data-val="costUsd">费用${thArrow("costUsd")}</th>
-              <th class="r sortable" data-action="sort-model" data-val="avgTps">平均速度${thArrow("avgTps")}</th>
-              <th class="r sortable" data-action="sort-model" data-val="peakTps">峰值速度${thArrow("peakTps")}</th>
+              <th class="r sortable" data-action="sort-model" data-val="requests">请求次数 ${thArrow("requests")}</th>
+              <th class="r sortable" data-action="sort-model" data-val="tokens">Token ${thArrow("tokens")}</th>
+              <th class="r sortable" data-action="sort-model" data-val="inputTokens">新增输入 ${thArrow("inputTokens")}</th>
+              <th class="r sortable" data-action="sort-model" data-val="cacheHitRate">缓存命中 ${thArrow("cacheHitRate")}</th>
+              <th class="r sortable" data-action="sort-model" data-val="costUsd">费用 ${thArrow("costUsd")}</th>
+              <th class="r sortable" data-action="sort-model" data-val="avgTps">平均速度 ${thArrow("avgTps")}</th>
+              <th class="r sortable" data-action="sort-model" data-val="peakTps">峰值速度 ${thArrow("peakTps")}</th>
             </tr>
           </thead>
           <tbody>
@@ -909,12 +963,12 @@ function renderOverviewTab(snap) {
                   (m) => `
                 <tr>
                   <td>
-                    <span class="model-dot" style="background:${m.color};margin-right:7px"></span>
+                    <span class="model-dot" style="background:${m.color};margin-right:6px"></span>
                     <strong>${esc(m.label)}</strong>
                   </td>
                   <td class="r num">${fmtInt(m.requests)}</td>
-                  <td class="r num">${fmtTokens(m.tokens)}</td>
-                  <td class="r num" style="color:var(--fg-secondary)">${fmtTokens(m.inputTokens)}</td>
+                  <td class="r num">${fmtTokens(m.tokens, 2, s)}</td>
+                  <td class="r num" style="color:var(--fg-secondary)">${fmtTokens(m.inputTokens, 2, s)}</td>
                   <td class="r num ${hitClass(m.cacheHitRate)}">${m.cacheHitRate}%</td>
                   <td class="r num">${esc(fmtCost(m.costUsd, s))}</td>
                   <td class="r num">${m.avgTps ? `${m.avgTps} tok/s` : "--"}</td>
@@ -942,7 +996,7 @@ function renderTasksTab(snap) {
     <div class="card-head">
       <div class="card-title">任务与 Swarm 消耗归并</div>
       <div class="seg-switch">
-        <button class="seg-btn ${state.taskMode === "roots" ? "active" : ""}" data-action="task-mode" data-val="roots">按主任务归并 (${data.roots.length})</button>
+        <button class="seg-btn ${state.taskMode === "roots" ? "active" : ""}" data-action="task-mode" data-val="roots">按主任务 (${data.roots.length})</button>
         <button class="seg-btn ${state.taskMode === "sessions" ? "active" : ""}" data-action="task-mode" data-val="sessions">全部会话 (${data.sessions.length})</button>
       </div>
     </div>
@@ -960,13 +1014,14 @@ function renderTasksTab(snap) {
                   <div class="child-row">
                     <div class="task-title-col">
                       <span class="model-dot" style="background:${c.primaryModelColor}"></span>
-                      <span style="color:var(--fg-secondary)">${c.depth > 0 ? "↳ " : "★ "}${esc(c.displayTitle)}</span>
+                      ${c.depth > 0 ? icon("subBranch", "sm muted") : icon("sparkles", "sm muted")}
+                      <span style="color:var(--fg-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px" title="${esc(c.displayTitle)}">${esc(c.displayTitle)}</span>
                       <span class="badge neutral">${esc(c.primaryModel)}</span>
                       ${c.anomalies > 0 ? `<span class="badge warn">${c.anomalies} 掉缓存</span>` : ""}
                     </div>
                     <div class="task-stats num">
                       <span>${fmtInt(c.steps)} 步</span>
-                      <span>${fmtTokens(c.tokens)}</span>
+                      <span>${fmtTokens(c.tokens, 2, s)}</span>
                       <span class="${hitClass(c.cacheHitRate)}">${c.cacheHitRate}%</span>
                       <strong>${esc(fmtCost(c.costUsd, s))}</strong>
                       <button class="btn sm" data-action="inspect-context" data-val="${esc(c.cid)}">上下文</button>
@@ -982,15 +1037,15 @@ function renderTasksTab(snap) {
           <div class="task-card">
             <div class="task-header" data-action="toggle-root" data-val="${esc(r.rootId)}">
               <div class="task-title-col">
-                <span style="color:var(--fg-muted);width:14px">${open ? "▾" : "▸"}</span>
+                ${icon(open ? "chevronDown" : "chevronRight", "sm muted")}
                 <span class="task-title" title="${esc(r.title)}">${esc(r.title)}</span>
-                ${r.sessionCount > 1 ? `<span class="badge info num">${r.sessionCount} 会话 / Swarm</span>` : ""}
+                ${r.sessionCount > 1 ? `<span class="badge info num">${r.sessionCount} 会话</span>` : ""}
                 <span style="font-size:11px;color:var(--fg-muted)">${fmtTimeShort(r.firstTs)} ~ ${fmtTimeShort(r.lastTs)}</span>
               </div>
               <div class="task-stats num">
                 <span>${fmtInt(r.steps)} 步</span>
-                <span>${fmtTokens(r.tokens)}</span>
-                <span class="${hitClass(r.cacheHitRate)}">缓存 ${r.cacheHitRate}%</span>
+                <span>${fmtTokens(r.tokens, 2, s)}</span>
+                <span class="${hitClass(r.cacheHitRate)}">命中 ${r.cacheHitRate}%</span>
                 <strong>${esc(fmtCost(r.costUsd, s))}</strong>
               </div>
             </div>
@@ -1002,18 +1057,17 @@ function renderTasksTab(snap) {
     return `<div class="card">${modeSwitch}${cards || `<div class="empty-state">暂无任务</div>`}</div>`;
   }
 
-  // Flat sessions table
   const rows = data.sessions
     .map(
       (c) => `
       <tr>
-        <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis" title="${esc(c.displayTitle)}">
-          ${c.depth > 0 ? `<span style="color:var(--fg-muted)">↳ </span>` : ""}
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis" title="${esc(c.displayTitle)}">
+          ${c.depth > 0 ? `${icon("subBranch", "sm muted")} ` : ""}
           <strong>${esc(c.displayTitle)}</strong>
         </td>
         <td><span class="model-dot" style="background:${c.primaryModelColor};margin-right:6px"></span>${esc(c.primaryModel)}</td>
         <td class="r num">${fmtInt(c.steps)}</td>
-        <td class="r num">${fmtTokens(c.tokens)}</td>
+        <td class="r num">${fmtTokens(c.tokens, 2, s)}</td>
         <td class="r num ${hitClass(c.cacheHitRate)}">${c.cacheHitRate}%</td>
         <td class="r num">${esc(fmtCost(c.costUsd, s))}</td>
         <td class="r num" style="color:var(--fg-muted)">${fmtTimeShort(c.lastTs)}</td>
@@ -1053,15 +1107,15 @@ function renderRequestsTab(snap) {
   const q = state.reqQuery;
 
   const toolbar = `
-    <div class="filter-bar" style="margin-bottom:12px">
+    <div class="filter-bar" style="margin-bottom:10px">
       <div class="seg-switch">
         <button class="seg-btn ${q.filter === "all" ? "active" : ""}" data-action="req-filter" data-val="all">全部</button>
         <button class="seg-btn ${q.filter === "anomaly" ? "active" : ""}" data-action="req-filter" data-val="anomaly">短间隔掉缓存</button>
-        <button class="seg-btn ${q.filter === "checkpoint" ? "active" : ""}" data-action="req-filter" data-val="checkpoint">上下文压缩</button>
+        <button class="seg-btn ${q.filter === "checkpoint" ? "active" : ""}" data-action="req-filter" data-val="checkpoint">压缩</button>
         <button class="seg-btn ${q.filter === "error" ? "active" : ""}" data-action="req-filter" data-val="error">错误</button>
       </div>
-      <div class="filter-group">
-        <input class="text-input" id="req-search" type="search" placeholder="搜索会话标题 / 模型..." value="${esc(q.search)}" style="width:200px" />
+      <div class="filter-group" style="flex:1 1 180px;justify-content:flex-end">
+        <input class="text-input" id="req-search" type="search" placeholder="搜索会话 / 模型..." value="${esc(q.search)}" style="max-width:200px" />
         <button class="btn sm" data-action="req-search-go">筛选</button>
       </div>
     </div>
@@ -1079,11 +1133,11 @@ function renderRequestsTab(snap) {
       return `
         <tr>
           <td class="num" style="color:var(--fg-muted)">${fmtTime(r.tsMs)}</td>
-          <td style="max-width:190px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.title)}">${esc(r.title)}</td>
+          <td style="max-width:170px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.title)}">${esc(r.title)}</td>
           <td><span class="model-dot" style="background:${r.modelColor};margin-right:6px"></span>${esc(r.modelShort)}</td>
-          <td class="r num">${fmtTokens(r.inputTokens, 1)}</td>
-          <td class="r num" style="color:var(--fg-secondary)">${fmtTokens(r.cacheReadTokens, 1)}</td>
-          <td class="r num">${fmtTokens(r.outputTokens, 1)}</td>
+          <td class="r num">${fmtTokens(r.inputTokens, 1, s)}</td>
+          <td class="r num" style="color:var(--fg-secondary)">${fmtTokens(r.cacheReadTokens, 1, s)}</td>
+          <td class="r num">${fmtTokens(r.outputTokens, 1, s)}</td>
           <td class="r num ${hitClass(r.cacheHitRate)}">${r.cacheHitRate}%</td>
           <td class="r num">${esc(fmtCost(r.costUsd, s, 4))}</td>
           <td class="r num" style="color:var(--fg-secondary)">${r.tps ? `${r.tps} t/s` : r.durationMs ? fmtDuration(r.durationMs) : "--"}</td>
@@ -1116,7 +1170,7 @@ function renderRequestsTab(snap) {
         </table>
       </div>
       <div class="pager">
-        <span class="num">共 ${fmtInt(data.total)} 条记录 · 第 ${data.page} / ${data.totalPages} 页</span>
+        <span class="num">共 ${fmtInt(data.total)} 条 · 第 ${data.page} / ${data.totalPages} 页</span>
         <div class="filter-group">
           <button class="btn sm" data-action="req-page" data-val="${Math.max(1, data.page - 1)}" ${data.page <= 1 ? "disabled" : ""}>上一页</button>
           <button class="btn sm" data-action="req-page" data-val="${Math.min(data.totalPages, data.page + 1)}" ${data.page >= data.totalPages ? "disabled" : ""}>下一页</button>
@@ -1139,7 +1193,7 @@ function renderErrorsTab(snap) {
         <td>${esc(r.title)}</td>
         <td>${esc(r.modelLabel)}</td>
         <td><span class="badge err">${esc(r.status)}</span></td>
-        <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;color:var(--fg-secondary)">${esc(r.error || "执行中断或模型返回错误")}</td>
+        <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;color:var(--fg-secondary)">${esc(r.error || "执行中断或模型返回错误")}</td>
       </tr>
     `
     )
@@ -1150,11 +1204,11 @@ function renderErrorsTab(snap) {
       (r) => `
       <tr>
         <td class="num" style="color:var(--fg-muted)">${fmtTime(r.tsMs)}</td>
-        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(r.title)}</td>
+        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${esc(r.title)}</td>
         <td>${esc(r.modelShort)}</td>
-        <td class="r num">${fmtTokens(r.prevContextTokens, 1)}</td>
-        <td class="r num" style="color:var(--red)">${fmtTokens(r.inputTokens, 1)}</td>
-        <td class="r num">${fmtTokens(r.cacheReadTokens, 1)}</td>
+        <td class="r num">${fmtTokens(r.prevContextTokens, 1, s)}</td>
+        <td class="r num" style="color:var(--red)">${fmtTokens(r.inputTokens, 1, s)}</td>
+        <td class="r num">${fmtTokens(r.cacheReadTokens, 1, s)}</td>
         <td class="r num">${esc(fmtCost(r.costUsd, s, 4))}</td>
       </tr>
     `
@@ -1165,12 +1219,12 @@ function renderErrorsTab(snap) {
     <div class="card">
       <div class="card-head">
         <div class="card-title">错误事件 (${data.errors.length + data.stopErrors.length})</div>
-        <button class="btn sm" data-action="copy-diagnostics">复制诊断摘要</button>
+        <button class="btn sm" data-action="copy-diagnostics">${icon("copy", "sm")}<span>复制诊断摘要</span></button>
       </div>
       <div class="table-wrap">
         <table class="data-table">
           <thead><tr><th>时间</th><th>会话</th><th>模型</th><th>状态</th><th>错误信息</th></tr></thead>
-          <tbody>${errRows || `<tr><td colspan="5" class="empty-state">当前范围内未发现报错请求 🎉</td></tr>`}</tbody>
+          <tbody>${errRows || `<tr><td colspan="5"><div class="empty-state">${icon("checkCircle", "lg")}<span>当前范围内未发现报错请求</span></div></td></tr>`}</tbody>
         </table>
       </div>
     </div>
@@ -1178,7 +1232,7 @@ function renderErrorsTab(snap) {
     <div class="card">
       <div class="card-head">
         <div class="card-title">短间隔异常掉缓存 (${data.anomalies.length})</div>
-        <div class="card-sub">排除冷启动与压缩，捕获 4 分钟内缓存命中突降 &gt;50% 的调用</div>
+        <div class="card-sub">排除冷启动与压缩，捕获 4 分钟内缓存突降 &gt;50% 的调用</div>
       </div>
       <div class="table-wrap">
         <table class="data-table">
@@ -1193,7 +1247,7 @@ function renderErrorsTab(snap) {
               <th class="r">本步费用</th>
             </tr>
           </thead>
-          <tbody>${anomRows || `<tr><td colspan="7" class="empty-state">未检测到异常掉缓存记录</td></tr>`}</tbody>
+          <tbody>${anomRows || `<tr><td colspan="7"><div class="empty-state">${icon("shieldCheck", "lg")}<span>未检测到异常掉缓存记录</span></div></td></tr>`}</tbody>
         </table>
       </div>
     </div>
@@ -1215,7 +1269,7 @@ function renderPricingTab(snap) {
       return `
         <tr data-model-price-row="${esc(m.key)}">
           <td>
-            <span class="model-dot" style="background:${m.color};margin-right:7px"></span>
+            <span class="model-dot" style="background:${m.color};margin-right:6px"></span>
             <strong>${esc(m.label)}</strong>
             ${phaseNote}
           </td>
@@ -1254,8 +1308,8 @@ function renderPricingTab(snap) {
         <div class="field">
           <label>Claude 缓存写倍率</label>
           <select class="select-pill" id="cfg-claude-mult">
-            <option value="1.25" ${Number(s.claudeCacheWriteMultiplier) === 1.25 ? "selected" : ""}>1.25x (5分钟 Prompt Cache 写)</option>
-            <option value="1" ${Number(s.claudeCacheWriteMultiplier) === 1 ? "selected" : ""}>1.0x (按基础输入价估算)</option>
+            <option value="1.25" ${Number(s.claudeCacheWriteMultiplier) === 1.25 ? "selected" : ""}>1.25x (5分钟缓存写)</option>
+            <option value="1" ${Number(s.claudeCacheWriteMultiplier) === 1 ? "selected" : ""}>1.0x (基础输入价)</option>
           </select>
         </div>
         <div class="field">
@@ -1269,7 +1323,7 @@ function renderPricingTab(snap) {
       <div class="card-head">
         <div class="card-title">模型参考单价（美元 / 百万 Tokens）</div>
         <div class="filter-group">
-          <button class="btn sm" data-action="reset-pricing">恢复官方默认价</button>
+          <button class="btn sm" data-action="reset-pricing">恢复默认</button>
           <button class="btn solid sm" data-action="save-sub-pricing">保存单价</button>
         </div>
       </div>
@@ -1288,7 +1342,7 @@ function renderPricingTab(snap) {
         </table>
       </div>
       <div class="note-box">
-        内置时间分段定价：Gemini 4 Carbon / Argon 在 2026-12-01 前自动按推广价 ($2 / $0.10 / $10) 计费，之后按正式价 ($4 / $0.20 / $20) 计费；自定义修改将覆盖默认单价。
+        内置时间分段定价：Gemini 4 Carbon / Argon 在 2026-12-01 前自动按推广价 ($2 / $0.10 / $10) 计费，之后按正式价 ($4 / $0.20 / $20) 计费。
       </div>
     </div>
   `;
@@ -1306,12 +1360,10 @@ function renderSettingsTab(snap) {
       </div>
       <div class="form-grid">
         <div class="field">
-          <label>实时增量轮询间隔</label>
-          <select class="select-pill" id="cfg-poll">
-            <option value="2500" ${s.pollIntervalMs === 2500 ? "selected" : ""}>2.5 秒（极速实时，推荐）</option>
-            <option value="5000" ${s.pollIntervalMs === 5000 ? "selected" : ""}>5 秒（均衡）</option>
-            <option value="15000" ${s.pollIntervalMs === 15000 ? "selected" : ""}>15 秒（低频）</option>
-            <option value="0" ${s.pollIntervalMs === 0 ? "selected" : ""}>关闭自动刷新（仅手动）</option>
+          <label>Token 计量单位</label>
+          <select class="select-pill" id="cfg-unit">
+            <option value="zh" ${(s.unitFormat || "zh") === "zh" ? "selected" : ""}>中文单位（万 / 亿）</option>
+            <option value="en" ${s.unitFormat === "en" ? "selected" : ""}>英文单位（K / M / B）</option>
           </select>
         </div>
         <div class="field">
@@ -1320,6 +1372,15 @@ function renderSettingsTab(snap) {
             <option value="dual" ${s.currency === "dual" ? "selected" : ""}>双显（USD + 人民币）</option>
             <option value="usd" ${s.currency === "usd" ? "selected" : ""}>仅美元 (USD)</option>
             <option value="cny" ${s.currency === "cny" ? "selected" : ""}>仅人民币 (CNY)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>实时增量轮询间隔</label>
+          <select class="select-pill" id="cfg-poll">
+            <option value="2500" ${s.pollIntervalMs === 2500 ? "selected" : ""}>2.5 秒（极速实时）</option>
+            <option value="5000" ${s.pollIntervalMs === 5000 ? "selected" : ""}>5 秒（均衡）</option>
+            <option value="15000" ${s.pollIntervalMs === 15000 ? "selected" : ""}>15 秒（低频）</option>
+            <option value="0" ${s.pollIntervalMs === 0 ? "selected" : ""}>关闭自动刷新</option>
           </select>
         </div>
         <div class="field">
@@ -1344,20 +1405,43 @@ function renderSettingsTab(snap) {
     <div class="card">
       <div class="card-head">
         <div class="card-title">数据索引与报告导出</div>
-        <div class="card-sub">已索引 ${snap.recentSessions?.length || 0}+ 会话 · Hooks 采样 ${snap.kpi.timedCount} 步</div>
+        <div class="card-sub">Hooks 采样 ${snap.kpi.timedCount} 步</div>
       </div>
       <div class="filter-group">
-        <button class="btn" data-action="copy-markdown">复制 Markdown 用量战报</button>
-        <button class="btn danger" data-action="rebuild-cache">重建本地增量索引</button>
+        <button class="btn" data-action="copy-markdown">${icon("copy", "sm")}<span>复制 Markdown 战报</span></button>
+        <button class="btn danger" data-action="rebuild-cache">${icon("database", "sm")}<span>重建本地增量索引</span></button>
       </div>
       <div class="note-box">
-        本插件采用字节级增量读取技术，仅扫描发生变化的活跃会话新增字节，零外部网络请求、不修改任何 Antigravity 客户端文件。速度与耗时指标通过插件内置的 <code>PreInvocation</code> / <code>PostInvocation</code> 官方 Hooks 自动记录。
+        本插件采用字节级增量读取技术，仅扫描发生变化的活跃会话新增字节，零外部网络请求、不修改任何 Antigravity 客户端文件。
       </div>
     </div>
   `;
 }
 
-// ---------------- Root Render ----------------
+// ---------------- Root Render (Fixed Header + Preserved Scroll) ----------------
+
+function bindHeatmapScrollAndPin() {
+  const wrap = document.getElementById("heatmap-scroll");
+  if (!wrap) return;
+  const applyPos = () => {
+    if (state.heatmapPinnedRight || state.heatmapScrollLeft === null) {
+      wrap.scrollLeft = wrap.scrollWidth;
+    } else {
+      wrap.scrollLeft = state.heatmapScrollLeft;
+    }
+  };
+  applyPos();
+  requestAnimationFrame(applyPos);
+  wrap.addEventListener(
+    "scroll",
+    () => {
+      const distToRight = wrap.scrollWidth - wrap.clientWidth - wrap.scrollLeft;
+      state.heatmapPinnedRight = distToRight <= 16;
+      state.heatmapScrollLeft = wrap.scrollLeft;
+    },
+    { passive: true }
+  );
+}
 
 function render() {
   const root = document.getElementById("app");
@@ -1365,32 +1449,53 @@ function render() {
   const snap = state.snapshot;
   if (!snap) return;
 
+  // Preserve current vertical scroll position of main pane across live updates
+  const prevMain = document.getElementById("main-scroll");
+  const prevScrollTop = prevMain ? prevMain.scrollTop : 0;
+  const prevNav = document.getElementById("nav-scroll");
+  const prevNavLeft = prevNav ? prevNav.scrollLeft : 0;
+
   const compactMode = state.surface === "monitor" || (state.isNarrow && !state.surfaceLockedByUser);
   root.classList.toggle("is-compact", compactMode);
+  root.classList.toggle("is-narrow", state.isNarrow);
 
   const s = snap.settings;
   const inflightCount = snap.inflightCount || 0;
+  const unitLabel = getUnitFormat(s) === "zh" ? "万/亿" : "K/M";
+  const curLabel = s.currency === "dual" ? "$/¥" : s.currency === "cny" ? "¥" : "$";
 
   if (compactMode) {
     root.innerHTML = `
-      <div class="topbar" style="margin-bottom:10px">
-        <div class="brand" style="font-size:14.5px">
-          <span class="brand-dot ${state.liveEnabled ? "live" : "idle"}"></span>
-          <span>Pulse</span>
-          <span class="status-chip ${inflightCount > 0 ? "running" : ""}">${inflightCount > 0 ? `${inflightCount} 运行中` : "实时就绪"}</span>
+      <header class="app-header">
+        <div class="app-header-inner">
+          <div class="topbar">
+            <div class="brand">
+              <span class="brand-dot ${state.liveEnabled ? "live" : "idle"}"></span>
+              <span class="brand-title">Pulse</span>
+              <span class="status-chip ${inflightCount > 0 ? "running" : ""}">${inflightCount > 0 ? `${inflightCount} 运行中` : "实时就绪"}</span>
+            </div>
+            <div class="topbar-actions">
+              <button class="icon-btn" data-action="toggle-unit" title="切换中文/英文计量单位">${unitLabel}</button>
+              <button class="icon-btn" data-action="cycle-currency" title="切换币种">${curLabel}</button>
+              <button class="icon-btn ${state.liveEnabled ? "active" : ""}" data-action="toggle-live" title="切换实时自动刷新">${state.liveEnabled ? "实时" : "暂停"}</button>
+              <button class="icon-btn square" data-action="refresh" title="立即刷新">${icon("refresh", "sm")}</button>
+            </div>
+          </div>
+          ${renderSessionSwitcher(snap, true)}
         </div>
-        <div class="topbar-actions">
-          <button class="icon-btn ${state.liveEnabled ? "active" : ""}" data-action="toggle-live" title="切换实时刷新">${state.liveEnabled ? "实时" : "暂停"}</button>
-          <button class="icon-btn" data-action="cycle-currency" title="切换币种">${s.currency === "cny" ? "¥" : s.currency === "usd" ? "$" : "$/¥"}</button>
-          <button class="icon-btn" data-action="refresh" title="立即刷新">↻</button>
+      </header>
+      <div class="app-main" id="main-scroll">
+        <div class="app-main-inner">
+          ${renderMonitorContent(snap, true)}
         </div>
       </div>
-      ${renderMonitorContent(snap, true)}
     `;
+    const nextMain = document.getElementById("main-scroll");
+    if (nextMain) nextMain.scrollTop = prevScrollTop;
     return;
   }
 
-  // Full Dashboard Mode
+  // Full Dashboard Mode (Fixed Topbar + Nav + Filter Bar; Scrollable Main)
   const tabs = [
     ["overview", "概览"],
     ["monitor", "实时监控"],
@@ -1433,47 +1538,70 @@ function render() {
   else if (state.tab === "pricing") bodyHtml = renderPricingTab(snap);
   else if (state.tab === "settings") bodyHtml = renderSettingsTab(snap);
 
-  const showFilterBar = !["pricing", "settings", "monitor"].includes(state.tab);
+  let subHeaderHtml = "";
+  if (state.tab === "monitor") {
+    subHeaderHtml = renderSessionSwitcher(snap, false);
+  } else if (!["pricing", "settings"].includes(state.tab)) {
+    subHeaderHtml = `
+      <div class="filter-bar">
+        <div class="filter-group">
+          <select class="select-pill" data-action="set-range">
+            ${Object.entries(rangeLabels)
+              .map(([k, l]) => `<option value="${k}" ${state.range === k ? "selected" : ""}>${l}</option>`)
+              .join("")}
+          </select>
+          <select class="select-pill" data-action="set-model">${modelOpts}</select>
+        </div>
+        <div class="filter-meta num">
+          ${fmtInt(snap.kpi.conversationsCount)} 会话 · 更新于 ${fmtTime(snap.generatedAt)}
+        </div>
+      </div>
+    `;
+  }
 
   root.innerHTML = `
-    <div class="topbar">
-      <div class="brand">
-        <span class="brand-dot ${state.liveEnabled ? "live" : "idle"}"></span>
-        <span>Antigravity Pulse</span>
-        <span class="status-chip ${inflightCount > 0 ? "running" : ""}">${inflightCount > 0 ? `${inflightCount} 运行中` : "实时就绪"}</span>
+    <header class="app-header">
+      <div class="app-header-inner">
+        <div class="topbar">
+          <div class="brand">
+            <span class="brand-dot ${state.liveEnabled ? "live" : "idle"}"></span>
+            <span class="brand-title">${state.isNarrow ? "Pulse" : "Antigravity Pulse"}</span>
+            <span class="status-chip ${inflightCount > 0 ? "running" : ""}">${inflightCount > 0 ? `${inflightCount} 运行中` : "实时就绪"}</span>
+          </div>
+          <div class="topbar-actions">
+            ${
+              state.isNarrow
+                ? `<button class="icon-btn" data-action="switch-surface" data-val="monitor" title="切回紧凑监控面板">${icon("arrowLeft", "sm")}<span>紧凑</span></button>`
+                : ""
+            }
+            <button class="icon-btn" data-action="toggle-unit" title="切换中文/英文计量单位">${unitLabel}</button>
+            <button class="icon-btn" data-action="cycle-currency" title="切换美元/人民币显示">${curLabel}</button>
+            <button class="icon-btn ${state.liveEnabled ? "active" : ""}" data-action="toggle-live" title="切换自动增量刷新">
+              <i class="dot ${state.liveEnabled ? "ok" : "muted"}"></i><span>${state.liveEnabled ? "实时" : "暂停"}</span>
+            </button>
+            <button class="icon-btn square" data-action="refresh" title="立即刷新">${icon("refresh", "sm")}</button>
+          </div>
+        </div>
+        <div class="nav-scroll" id="nav-scroll">
+          <nav class="nav-pills" aria-label="主导航">${navHtml}</nav>
+        </div>
+        ${subHeaderHtml}
       </div>
-      <nav class="nav-pills" aria-label="主导航">${navHtml}</nav>
-      <div class="topbar-actions">
-        <button class="icon-btn ${state.liveEnabled ? "active" : ""}" data-action="toggle-live" title="自动增量刷新">
-          ${state.liveEnabled ? "● 实时" : "○ 暂停"}
-        </button>
-        <button class="icon-btn" data-action="cycle-currency" title="切换美元/人民币显示">
-          ${s.currency === "dual" ? "$ / ¥" : s.currency === "cny" ? "¥ CNY" : "$ USD"}
-        </button>
-        <button class="icon-btn" data-action="refresh" title="立即刷新">↻</button>
+    </header>
+
+    <main class="app-main" id="main-scroll">
+      <div class="app-main-inner">
+        ${bodyHtml}
       </div>
-    </div>
-
-    ${
-      showFilterBar
-        ? `<div class="filter-bar">
-            <div class="filter-group">
-              <select class="select-pill" data-action="set-range">
-                ${Object.entries(rangeLabels)
-                  .map(([k, l]) => `<option value="${k}" ${state.range === k ? "selected" : ""}>${l}</option>`)
-                  .join("")}
-              </select>
-              <select class="select-pill" data-action="set-model">${modelOpts}</select>
-            </div>
-            <div class="filter-meta num">
-              ${rangeLabels[state.range] || ""} · ${fmtInt(snap.kpi.conversationsCount)} 会话 · 更新于 ${fmtTime(snap.generatedAt)}
-            </div>
-          </div>`
-        : ""
-    }
-
-    <main>${bodyHtml}</main>
+    </main>
   `;
+
+  const nextMain = document.getElementById("main-scroll");
+  if (nextMain) nextMain.scrollTop = prevScrollTop;
+  const nextNav = document.getElementById("nav-scroll");
+  if (nextNav) nextNav.scrollLeft = prevNavLeft;
+
+  bindHeatmapScrollAndPin();
 }
 
 // ---------------- Event Delegation ----------------
@@ -1485,17 +1613,19 @@ function buildMarkdownReport(snap) {
   const lines = [
     `# Antigravity Pulse 用量报告 (${snap.range})`,
     ``,
-    `- **总 Tokens**: ${fmtInt(k.totalTokens)} (${fmtTokens(k.totalTokens)})`,
-    `- **新增输入 / 缓存读 / 输出**: ${fmtTokens(k.inputTokens)} / ${fmtTokens(k.cacheReadTokens)} (命中 ${k.cacheHitRate}%) / ${fmtTokens(k.outputTokens)}`,
+    `- **总 Tokens**: ${fmtInt(k.totalTokens)} (${fmtTokens(k.totalTokens, 2, s)})`,
+    `- **新增输入 / 缓存读 / 输出**: ${fmtTokens(k.inputTokens, 2, s)} / ${fmtTokens(k.cacheReadTokens, 2, s)} (命中 ${k.cacheHitRate}%) / ${fmtTokens(k.outputTokens, 2, s)}`,
     `- **折合 API 费用**: ${fmtUsd(k.costUsd, 2)} (≈ ${fmtCny(k.costUsd, s.usdToCny, 0)}) · 缓存节省 ${fmtUsd(k.cacheSavedUsd, 2)}`,
     `- **请求次数**: ${fmtInt(k.requests)} (成功率 ${k.successRate}%)`,
   ];
   if (sub?.enabled) {
-    lines.push(`- **订阅回本**: ${sub.planName} ($${sub.monthlyUsd}) 已回本 **${sub.roiMultiplier}x** (净省 ${fmtUsd(Math.max(0, sub.netSavedUsd), 2)})`);
+    lines.push(
+      `- **订阅回本**: ${sub.planName} ($${sub.monthlyUsd}) 已回本 **${sub.roiMultiplier}x** (净省 ${fmtUsd(Math.max(0, sub.netSavedUsd), 2)})`
+    );
   }
   lines.push(``, `| 模型 | 请求 | Tokens | 缓存命中 | 折合费用 |`, `| :--- | ---: | ---: | ---: | ---: |`);
   for (const m of snap.models || []) {
-    lines.push(`| ${m.label} | ${m.requests} | ${fmtTokens(m.tokens)} | ${m.cacheHitRate}% | ${fmtUsd(m.costUsd, 2)} |`);
+    lines.push(`| ${m.label} | ${m.requests} | ${fmtTokens(m.tokens, 2, s)} | ${m.cacheHitRate}% | ${fmtUsd(m.costUsd, 2)} |`);
   }
   return lines.join("\n");
 }
@@ -1521,6 +1651,8 @@ function initEvents() {
 
     if (action === "set-tab") {
       state.tab = val;
+      const m = document.getElementById("main-scroll");
+      if (m) m.scrollTop = 0;
       render();
       if (val === "tasks") fetchTasks();
       if (val === "requests") fetchRequests();
@@ -1537,11 +1669,19 @@ function initEvents() {
       restartPollTimer();
       render();
       showToast(state.liveEnabled ? "已开启实时增量刷新" : "已暂停自动刷新");
+    } else if (action === "toggle-unit") {
+      const cur = getUnitFormat(state.snapshot?.settings);
+      const next = cur === "zh" ? "en" : "zh";
+      await saveSettings(
+        { unitFormat: next },
+        next === "zh" ? "已切换为中文单位（万 / 亿）" : "已切换为英文单位（K / M / B）"
+      );
     } else if (action === "cycle-currency") {
       const order = ["dual", "usd", "cny"];
       const cur = state.snapshot?.settings?.currency || "dual";
       const next = order[(order.indexOf(cur) + 1) % order.length];
-      await saveSettings({ currency: next }, `币种切换为 ${next.toUpperCase()}`);
+      const labels = { dual: "双显 ($ / ¥)", usd: "仅美元 (USD)", cny: "仅人民币 (CNY)" };
+      await saveSettings({ currency: next }, `币种切换为 ${labels[next]}`);
     } else if (action === "heat-metric") {
       state.heatmapMetric = val;
       render();
@@ -1562,6 +1702,8 @@ function initEvents() {
     } else if (action === "inspect-context") {
       state.selectedCid = val;
       state.tab = "monitor";
+      const m = document.getElementById("main-scroll");
+      if (m) m.scrollTop = 0;
       await fetchSnapshot(true);
     } else if (action === "req-filter") {
       state.reqQuery.filter = val;
@@ -1574,6 +1716,8 @@ function initEvents() {
       fetchRequests();
     } else if (action === "req-page") {
       state.reqQuery.page = Number(val) || 1;
+      const m = document.getElementById("main-scroll");
+      if (m) m.scrollTop = 0;
       fetchRequests();
     } else if (action === "save-sub-pricing") {
       const customPricing = {};
@@ -1614,8 +1758,9 @@ function initEvents() {
       showToast("已恢复官方默认单价");
     } else if (action === "save-general-settings") {
       await saveSettings({
-        pollIntervalMs: Number(document.getElementById("cfg-poll")?.value ?? 2500),
+        unitFormat: document.getElementById("cfg-unit")?.value || "zh",
         currency: document.getElementById("cfg-currency")?.value || "dual",
+        pollIntervalMs: Number(document.getElementById("cfg-poll")?.value ?? 2500),
         budgets: {
           gemini5hUsd: Number(document.getElementById("b-g5")?.value) || 80,
           gemini7dUsd: Number(document.getElementById("b-g7")?.value) || 400,
@@ -1670,10 +1815,13 @@ function initEvents() {
   });
 
   window.addEventListener("resize", () => {
-    const nextNarrow = window.innerWidth < 720;
+    const nextNarrow = window.innerWidth < 680;
     if (nextNarrow !== state.isNarrow) {
       state.isNarrow = nextNarrow;
       render();
+    } else if (state.heatmapPinnedRight) {
+      const wrap = document.getElementById("heatmap-scroll");
+      if (wrap) wrap.scrollLeft = wrap.scrollWidth;
     }
   });
 
@@ -1689,7 +1837,6 @@ function initEvents() {
 initTooltip();
 initEvents();
 
-// Register handlers BEFORE connect() per MCP Apps specification
 app.ontoolinput = () => {};
 
 app.ontoolresult = (result) => {
@@ -1719,7 +1866,6 @@ async function start() {
     state.connected = true;
     applyHostContext(app.getHostContext());
 
-    // Fallback pull in case the host mounts the view before delivering tool result
     setTimeout(() => {
       if (!state.snapshot) {
         fetchSnapshot(true).then(() => restartPollTimer());

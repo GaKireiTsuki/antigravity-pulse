@@ -27,7 +27,12 @@ function readAppHtml() {
   return `<!doctype html><html><body><p>Antigravity Pulse UI bundle not found. Run npm run build.</p></body></html>`;
 }
 
-function formatShortTokens(n) {
+function formatShortTokens(n, unit = "zh") {
+  if (unit === "zh") {
+    if (n >= 1e8) return `${(n / 1e8).toFixed(2)}亿`;
+    if (n >= 1e4) return `${(n / 1e4).toFixed(1)}万`;
+    return String(n);
+  }
   if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
   if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
   if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
@@ -37,10 +42,11 @@ function formatShortTokens(n) {
 function summarizeSnapshotText(snap) {
   const k = snap.kpi;
   const s = snap.subscription;
+  const unit = snap.settings?.unitFormat || "zh";
   const cny = (k.costUsd * (snap.settings?.usdToCny || 6.67)).toFixed(0);
   const parts = [
     `Antigravity Pulse (${snap.range}):`,
-    `Tokens ${formatShortTokens(k.totalTokens)} (缓存命中 ${k.cacheHitRate}%)`,
+    `Tokens ${formatShortTokens(k.totalTokens, unit)} (缓存命中 ${k.cacheHitRate}%)`,
     `折合费用 $${k.costUsd.toFixed(2)} (≈ ¥${cny})`,
     `请求 ${k.requests} 次 (成功率 ${k.successRate}%)`,
   ];
