@@ -8,6 +8,7 @@ import {
   getCatalogList,
   getModelInfo,
   normalizeModelKey,
+  resolveRatesAt,
 } from "./pricing.mjs";
 import { analyzeConversationContext } from "./context-analyzer.mjs";
 
@@ -1010,6 +1011,11 @@ export class PulseStore {
     let cycleTokens = 0;
     let cycleActiveDays = new Set();
     let allTimeCostUsd = 0;
+    let allTimeInput = 0;
+    let allTimeCache = 0;
+    let allTimeOutput = 0;
+    const allTimeByModel = new Map();
+    const cycleByModel = new Map();
     const convTotals = new Map();
 
     // 3. Filtered metrics
@@ -1017,10 +1023,31 @@ export class PulseStore {
     for (const s of all) {
       const tok = s.inputTokens + s.cacheReadTokens + s.outputTokens;
       allTimeCostUsd += s.costUsd;
+      allTimeInput += s.inputTokens;
+      allTimeCache += s.cacheReadTokens;
+      allTimeOutput += s.outputTokens;
+
+      let atm = allTimeByModel.get(s.modelKey);
+      if (!atm) {
+        atm = { tokens: 0, costUsd: 0, steps: 0 };
+        allTimeByModel.set(s.modelKey, atm);
+      }
+      atm.tokens += tok;
+      atm.costUsd += s.costUsd;
+      atm.steps++;
+
       if (s.tsMs >= cycleStartMs && s.tsMs < cycleEndMs) {
         cycleCostUsd += s.costUsd;
         cycleTokens += tok;
         cycleActiveDays.add(s.dayKey);
+        let cm = cycleByModel.get(s.modelKey);
+        if (!cm) {
+          cm = { tokens: 0, costUsd: 0, steps: 0 };
+          cycleByModel.set(s.modelKey, cm);
+        }
+        cm.tokens += tok;
+        cm.costUsd += s.costUsd;
+        cm.steps++;
       }
 
       // Track per-conversation totals for switcher & latest session detection
@@ -1334,6 +1361,62 @@ export class PulseStore {
     const dailyBurnUsd = Number((cycleCostUsd / activeDayDenom).toFixed(2));
     const runwayDays = dailyBurnUsd > 0 ? Number((cycleRemainingUsd / dailyBurnUsd).toFixed(1)) : null;
 
+    // Estimate how many tokens the remaining subscription quota translates to per model,
+    // using each model's observed blended $/1M (when >= 20 steps) or user's global token mix.
+    const allTimeTokTotal = allTimeInput + allTimeCache + allTimeOutput;
+    const mixIn = allTimeTokTotal > 0 ? allTimeInput / allTimeTokTotal : 0.05;
+    const mixCache = allTimeTokTotal > 0 ? allTimeCache / allTimeTokTotal : 0.94;
+    const mixOut = allTimeTokTotal > 0 ? allTimeOutput / allTimeTokTotal : 0.01;
+    const noCacheIn = mixIn + mixCache;
+
+    const featuredKeys = [
+      "gemini-4-neon",
+      "gemini-4-carbon",
+      "gemini-4-hydrogen",
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+      "gemini-3.8-flash",
+    ];
+    // Put models actually used by the user first (sorted by usage), then fill with core models
+    const usedSortedKeys = [...allTimeByModel.entries()]
+      .sort((a, b) => b[1].tokens - a[1].tokens)
+      .map(([k]) => k)
+      .filter((k) => k !== "unknown");
+    const estimateKeys = [];
+    for (const k of [...usedSortedKeys, ...featuredKeys]) {
+      if (!estimateKeys.includes(k)) estimateKeys.push(k);
+      if (estimateKeys.length >= 6) break;
+    }
+
+    const modelEstimates = estimateKeys.map((key) => {
+      const r = resolveRatesAt(key, nowMs, this.settings);
+      const obs = allTimeByModel.get(key);
+      const cyc = cycleByModel.get(key);
+      const useObserved = obs && obs.steps >= 20 && obs.tokens > 0 && obs.costUsd > 0;
+      const blendedPerMillionUsd = useObserved
+        ? obs.costUsd / (obs.tokens / 1e6)
+        : mixIn * r.effectiveInput + mixCache * r.cacheRate + mixOut * r.outputRate;
+      const noCachePerMillionUsd = noCacheIn * r.baseInputRate + mixOut * r.outputRate;
+      const estRemainingTokens =
+        blendedPerMillionUsd > 0 ? Math.round((cycleRemainingUsd / blendedPerMillionUsd) * 1e6) : 0;
+      const noCacheRemainingTokens =
+        noCachePerMillionUsd > 0 ? Math.round((cycleRemainingUsd / noCachePerMillionUsd) * 1e6) : 0;
+
+      return {
+        key: r.key,
+        label: r.label,
+        short: r.short,
+        color: r.color,
+        pool: r.pool,
+        estRemainingTokens,
+        noCacheRemainingTokens,
+        cycleUsedTokens: cyc?.tokens || 0,
+        cycleUsedUsd: Number((cyc?.costUsd || 0).toFixed(2)),
+        blendedPerMillionUsd: Number(blendedPerMillionUsd.toFixed(3)),
+        basis: useObserved ? "observed" : "mix",
+      };
+    });
+
     // Recent sessions sorted by last activity
     const recentSessions = [...convTotals.values()]
       .sort((a, b) => b.lastTs - a.lastTs)
@@ -1448,6 +1531,7 @@ export class PulseStore {
         cycleRemainingPct,
         dailyBurnUsd,
         runwayDays,
+        modelEstimates,
         refCostUsd: Number(refCostUsd.toFixed(2)),
         roiMultiplier,
         netSavedUsd,

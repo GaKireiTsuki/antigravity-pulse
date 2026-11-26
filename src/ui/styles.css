@@ -1301,6 +1301,85 @@ button {
   color: var(--fg-muted);
 }
 
+/* Per-model estimated remaining tokens strip inside subscription card */
+.quota-models-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+.quota-models-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  color: var(--fg-secondary);
+}
+.quota-models-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (max-width: 720px) {
+  .quota-models-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 380px) {
+  .quota-models-grid { grid-template-columns: 1fr; }
+}
+.quota-model-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--r-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  min-width: 0;
+  cursor: default;
+  transition: border-color var(--t-fast) ease, background var(--t-fast) ease;
+}
+.quota-model-chip:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+.quota-model-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.quota-model-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quota-model-used {
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.quota-model-right {
+  text-align: right;
+  flex: none;
+}
+.quota-model-rem {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--fg-primary);
+  white-space: nowrap;
+}
+.quota-model-rate {
+  font-size: 10px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
 /* Task Tree (Zero-overflow responsive) */
 .task-card {
   border: 1px solid var(--border-subtle);

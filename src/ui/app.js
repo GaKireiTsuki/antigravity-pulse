@@ -1079,6 +1079,41 @@ function renderOverviewTab(snap) {
             当前按本地用量与 5h/周限模型自动推算（触发低配额日志后将自动用官方锚点精确校准）。
           </div>`;
 
+    const modelEstHtml =
+      (sub.modelEstimates || []).length > 0
+        ? `<div class="quota-models-section">
+            <div class="quota-models-head">
+              <span style="font-weight:600;color:var(--fg-primary)">剩余额度折合各模型可用 Token</span>
+              <span style="color:var(--fg-muted)">按你的历史缓存命中率 (${k.cacheHitRate}%) 与综合均价折算</span>
+            </div>
+            <div class="quota-models-grid">
+              ${sub.modelEstimates
+                .map((me) => {
+                  const basisText = me.basis === "observed" ? "按该模型实测均价" : "按全局缓存结构估算";
+                  const tip = esc(
+                    `<strong>${me.label}</strong><br/>剩余额度约可用: <strong>${fmtTokens(me.estRemainingTokens, 2, s)}</strong><br/>综合均价: ${fmtUsd(me.blendedPerMillionUsd, 2)} / 百万 (${basisText})<br/>若完全无缓存保底: ${fmtTokens(me.noCacheRemainingTokens, 2, s)}<br/>本周期该模型已用: ${fmtTokens(me.cycleUsedTokens, 2, s)} (${fmtCost(me.cycleUsedUsd, s)})`
+                  );
+                  return `
+                    <div class="quota-model-chip" data-tip="${tip}">
+                      <div class="quota-model-left">
+                        <span class="model-dot" style="background:${me.color}"></span>
+                        <div style="min-width:0">
+                          <div class="quota-model-name">${esc(me.label)}</div>
+                          <div class="quota-model-used num">${me.cycleUsedTokens > 0 ? `本周期已用 ${fmtTokens(me.cycleUsedTokens, 1, s)}` : "本周期暂未使用"}</div>
+                        </div>
+                      </div>
+                      <div class="quota-model-right num">
+                        <div class="quota-model-rem">约 ${fmtTokens(me.estRemainingTokens, 1, s)}</div>
+                        <div class="quota-model-rate">${fmtUsd(me.blendedPerMillionUsd, 2)}/M</div>
+                      </div>
+                    </div>
+                  `;
+                })
+                .join("")}
+            </div>
+          </div>`
+        : "";
+
     subQuotaCard = `
       <div class="card">
         <div class="card-head">
@@ -1112,6 +1147,7 @@ function renderOverviewTab(snap) {
         </div>
 
         <div class="quota-pools-grid">${poolItems}</div>
+        ${modelEstHtml}
         ${activeAlerts}
         ${calNote}
       </div>
