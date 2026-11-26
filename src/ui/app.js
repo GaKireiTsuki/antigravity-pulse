@@ -507,38 +507,80 @@ function renderHeatmap(days, metric, settings) {
 }
 
 function renderDonut(models, valueKey, centerVal, centerLabel, settings) {
-  const r = 52;
-  const cx = 66;
-  const cy = 66;
+  const size = 138;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = 55;
+  const strokeW = 9.5;
   const circ = 2 * Math.PI * r;
   const activeModels = models.filter((m) => Number(m[valueKey] || 0) > 0);
   const total = activeModels.reduce((s, m) => s + Number(m[valueKey] || 0), 0);
-  const segGap = activeModels.length > 1 ? 2.8 : 0;
 
   let segs = "";
-  if (total > 0) {
-    let offset = 0;
-    for (const m of activeModels) {
+  if (total > 0 && activeModels.length === 1) {
+    const m = activeModels[0];
+    const val = Number(m[valueKey] || 0);
+    const valStr = valueKey === "costUsd" ? fmtCost(val, settings) : fmtTokens(val, 2, settings);
+    const tip = esc(`<strong>${m.label}</strong><br/>${valStr} (100%)`);
+    segs = `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${r}" stroke="${m.color}" data-tip="${tip}"></circle>`;
+  } else if (total > 0 && activeModels.length > 1) {
+    // Allocate rounded pill-arc slots so round caps never collide and tiny slices render as crisp round beads
+    const visualGap = 4.5;
+    const padPerSeg = strokeW + visualGap; // total non-dash allowance per segment (2 * capRadius + gap)
+    const minSlot = padPerSeg + 0.4;
+    const count = activeModels.length;
+
+    // Cap to 7 slices max if extreme count so minSlots never exceed circumference
+    const slots = activeModels.map((m) => {
       const val = Number(m[valueKey] || 0);
-      const frac = val / total;
-      const rawLen = frac * circ;
-      const dash = Math.max(2, rawLen - segGap);
-      const pct = (frac * 100).toFixed(1);
-      const valStr = valueKey === "costUsd" ? fmtCost(val, settings) : fmtTokens(val, 2, settings);
-      const tip = esc(`<strong>${m.label}</strong><br/>${valStr} (${pct}%)`);
-      segs += `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${r}" stroke="${m.color}" stroke-dasharray="${dash.toFixed(2)} ${(circ - dash).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})" data-tip="${tip}"></circle>`;
-      offset += rawLen;
+      return { m, val, frac: val / total, len: (val / total) * circ };
+    });
+
+    // Lift any tiny slice up to minSlot and trim proportionally from larger slices
+    let deficit = 0;
+    let surplusTotal = 0;
+    for (const s of slots) {
+      if (s.len < minSlot) {
+        deficit += minSlot - s.len;
+        s.len = minSlot;
+        s.locked = true;
+      } else {
+        surplusTotal += s.len - minSlot;
+      }
+    }
+    if (deficit > 0 && surplusTotal > 0) {
+      for (const s of slots) {
+        if (!s.locked) {
+          const share = (s.len - minSlot) / surplusTotal;
+          s.len = Math.max(minSlot, s.len - deficit * share);
+        }
+      }
+    }
+
+    // Normalize sum back to exact circumference
+    const lenSum = slots.reduce((acc, s) => acc + s.len, 0);
+    const norm = lenSum > 0 ? circ / lenSum : 1;
+
+    let cursor = 0;
+    for (const s of slots) {
+      const slotLen = s.len * norm;
+      const dash = Math.max(0.2, slotLen - padPerSeg);
+      const start = cursor + padPerSeg / 2;
+      const pct = (s.frac * 100).toFixed(1);
+      const valStr = valueKey === "costUsd" ? fmtCost(s.val, settings) : fmtTokens(s.val, 2, settings);
+      const tip = esc(`<strong>${s.m.label}</strong><br/>${valStr} (${pct}%)`);
+      segs += `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${r}" stroke="${s.m.color}" stroke-dasharray="${dash.toFixed(2)} ${(circ - dash).toFixed(2)}" stroke-dashoffset="${(-start).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})" data-tip="${tip}"></circle>`;
+      cursor += slotLen;
     }
   }
 
   return `
     <div class="donut-box">
-      <svg class="donut-svg" viewBox="0 0 132 132" role="img" aria-label="${esc(centerLabel)}">
+      <svg class="donut-svg" viewBox="0 0 ${size} ${size}" role="img" aria-label="${esc(centerLabel)}">
         <circle class="donut-track" cx="${cx}" cy="${cy}" r="${r}"></circle>
-        <circle class="donut-inner-guide" cx="${cx}" cy="${cy}" r="${r - 11}"></circle>
         <g class="donut-ring">${segs}</g>
         <text x="${cx}" y="${cy - 1}" text-anchor="middle" class="donut-center-val num">${esc(centerVal)}</text>
-        <text x="${cx}" y="${cy + 14}" text-anchor="middle" class="donut-center-lbl">${esc(centerLabel)}</text>
+        <text x="${cx}" y="${cy + 15}" text-anchor="middle" class="donut-center-lbl">${esc(centerLabel)}</text>
       </svg>
     </div>
   `;
