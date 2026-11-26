@@ -758,6 +758,49 @@ html.theme-ready .app-shell {
   gap: 4px;
   white-space: nowrap;
 }
+.kpi-equiv {
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px dashed var(--border-subtle);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--fg-secondary);
+}
+.kpi-equiv .ico {
+  align-self: center;
+  color: var(--cyan);
+}
+.kpi-equiv strong {
+  color: var(--fg-primary);
+  font-weight: 600;
+}
+.kpi-equiv-sub {
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.ctx-equiv {
+  margin-top: 8px;
+  padding: 6px 9px;
+  border-radius: var(--r-sm);
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--fg-secondary);
+}
+.ctx-equiv strong {
+  color: var(--fg-primary);
+  font-weight: 600;
+}
 .spark-wrap {
   height: 28px;
   margin-top: 8px;

@@ -30,6 +30,7 @@ const ICONS = {
   arrowRight: `<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>`,
   arrowLeft: `<path d="M19 12H5"/><path d="m12 19-7-7 7-7"/>`,
   shieldCheck: `<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>`,
+  bookOpen: `<path d="M2 4h7a4 4 0 0 1 3 1.4A4 4 0 0 1 15 4h7v15h-7a3 3 0 0 0-3 3 3 3 0 0 0-3-3H2z"/><line x1="12" y1="5.4" x2="12" y2="22"/>`,
 };
 
 function icon(name, cls = "") {
@@ -67,6 +68,70 @@ function fmtTokens(n, digits = 2, settings = null) {
   if (v >= 1e6) return `${(v / 1e6).toFixed(digits)}M`;
   if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
   return v.toLocaleString("en-US");
+}
+
+function fmtCharsZh(chars) {
+  const c = Math.max(0, Math.round(Number(chars || 0)));
+  if (c >= 1e8) return `${(c / 1e8).toFixed(2)} 亿字`;
+  if (c >= 1e6) return `${Math.round(c / 1e4).toLocaleString("zh-CN")} 万字`;
+  if (c >= 1e4) return `${(c / 1e4).toFixed(1)} 万字`;
+  return `${c.toLocaleString("zh-CN")} 字`;
+}
+
+/**
+ * Convert raw token count into relatable Chinese literary / reading milestones
+ * plus estimated equivalent character count (~0.75 Chinese/mixed chars per token).
+ */
+function describeTokenScale(tokens) {
+  const t = Number(tokens || 0);
+  if (t <= 0) return null;
+  const chars = Math.round(t * 0.75);
+  const charsText = fmtCharsZh(chars);
+
+  const milestones = [
+    { min: 600_000_000, size: 800_000_000, unit: "部", name: "《四库全书》" },
+    { min: 260_000_000, size: 370_000_000, unit: "部", name: "《永乐大典》" },
+    { min: 32_000_000, size: 40_000_000, unit: "套", name: "《二十四史》" },
+    { min: 9_000_000, size: 11_000_000, unit: "套", name: "《金庸全集》" },
+    { min: 2_500_000, size: 3_150_000, unit: "套", name: "《四大名著》" },
+    { min: 650_000, size: 880_000, unit: "套", name: "《三体》全集" },
+    { min: 150_000, size: 200_000, unit: "本", name: "《三体Ⅰ》" },
+    { min: 22_000, size: 30_000, unit: "本", name: "《小王子》" },
+    { min: 2_500, size: 3_000, unit: "篇", name: "《孔乙己》" },
+    { min: 400, size: 620, unit: "篇", name: "《出师表》" },
+  ];
+
+  let headline = "一篇短文";
+  for (const m of milestones) {
+    if (chars >= m.min) {
+      const ratio = chars / m.size;
+      const ratioStr = ratio >= 100 ? Math.round(ratio).toLocaleString("zh-CN") : ratio >= 10 ? ratio.toFixed(0) : ratio.toFixed(1);
+      headline = `${ratioStr} ${m.unit}${m.name}`;
+      break;
+    }
+  }
+
+  // Build fun multi-landmark hover tooltip
+  const refs = [];
+  if (chars >= 100_000_000) refs.push(`${(chars / 800_000_000).toFixed(2)} 部《四库全书》`);
+  if (chars >= 50_000_000) refs.push(`${(chars / 370_000_000).toFixed(1)} 部《永乐大典》`);
+  if (chars >= 2_000_000) refs.push(`${Math.round(chars / 3_150_000).toLocaleString("zh-CN")} 套《四大名著》`);
+  if (chars >= 400_000) refs.push(`${(chars / 880_000 >= 10 ? Math.round(chars / 880_000).toLocaleString("zh-CN") : (chars / 880_000).toFixed(1))} 套《三体》全集`);
+  if (chars < 400_000 && chars >= 10_000) refs.push(`${(chars / 30_000).toFixed(1)} 本《小王子》`);
+
+  // Double-sided A4 print reference (~2,400 chars/sheet, 0.1mm/sheet)
+  const sheets = Math.max(1, Math.round(chars / 2400));
+  const heightM = sheets * 0.0001;
+  const printStr =
+    heightM >= 1
+      ? `双面 A4 纸约 ${sheets >= 1e4 ? `${(sheets / 1e4).toFixed(1)} 万` : sheets.toLocaleString("zh-CN")} 张，叠高约 ${heightM.toFixed(1)} 米`
+      : `双面 A4 纸约 ${sheets.toLocaleString("zh-CN")} 张（厚约 ${(heightM * 100).toFixed(1)} 厘米）`;
+
+  const tip = esc(
+    `<strong>体量换算（按 1 Token ≈ 0.75 字）</strong><br/>折合字数：<strong>约 ${charsText}</strong><br/>相当于：${headline}${refs.length ? `<br/>${refs.join(" · ")}` : ""}<br/><span style="color:var(--fg-muted)">${printStr}</span>`
+  );
+
+  return { chars, charsText, headline, tip };
 }
 
 function fmtCtx(n, settings = null) {
@@ -901,6 +966,7 @@ function renderMonitorContent(snap, compactMode) {
       )
       .join("");
 
+    const ctxEquiv = describeTokenScale(ctx.contextTokens);
     const pctBadgeCls = ctx.usagePercent >= 85 ? "err" : ctx.usagePercent >= 65 ? "warn" : "info";
     ctxCardHtml = `
       <div class="card">
@@ -916,6 +982,14 @@ function renderMonitorContent(snap, compactMode) {
         </div>
         <div class="ctx-bar">${barSegs}</div>
         <div class="ctx-list">${catItems}</div>
+        ${
+          ctxEquiv
+            ? `<div class="ctx-equiv" data-tip="${ctxEquiv.tip}">
+                <span style="display:inline-flex;align-items:center;gap:5px">${icon("bookOpen", "sm muted")}<span>本会话上下文相当于 <strong>${esc(ctxEquiv.headline)}</strong></span></span>
+                <span class="num" style="font-size:10.5px;color:var(--fg-muted)">约 ${esc(ctxEquiv.charsText)}</span>
+              </div>`
+            : ""
+        }
         <div class="note-box">
           总上下文 (${fmtInt(ctx.contextTokens)} tokens) 为 API 实测精确值；各分类基于本地 ${ctx.usedFullTranscript ? "完整对话日志" : "精简日志"} 占比归一化拆解。
         </div>
@@ -1049,6 +1123,16 @@ function renderOverviewTab(snap) {
             <span>${fmtTokens(k.inputTokens + k.cacheReadTokens, 2, s)} 输入 / ${fmtTokens(k.outputTokens, 2, s)} 输出</span>
             <span class="${hitClass(k.cacheHitRate)}">命中 ${k.cacheHitRate}%</span>
           </div>
+          ${(() => {
+            const eq = describeTokenScale(k.totalTokens);
+            return eq
+              ? `<div class="kpi-equiv" data-tip="${eq.tip}">
+                  ${icon("bookOpen", "sm")}
+                  <span>相当于 <strong>${esc(eq.headline)}</strong></span>
+                  <span class="kpi-equiv-sub num">约 ${esc(eq.charsText)}</span>
+                </div>`
+              : "";
+          })()}
         </div>
         <div class="spark-wrap">${renderSparkline(snap.sparklines.tokens, "var(--cyan)")}</div>
       </div>
@@ -2287,10 +2371,11 @@ function buildMarkdownReport(snap) {
   const k = snap.kpi;
   const s = snap.settings;
   const sub = snap.subscription;
+  const tokEq = describeTokenScale(k.totalTokens);
   const lines = [
     `# Antigravity Pulse 用量报告 (${snap.range})`,
     ``,
-    `- **总 Tokens**: ${fmtInt(k.totalTokens)} (${fmtTokens(k.totalTokens, 2, s)})`,
+    `- **总 Tokens**: ${fmtInt(k.totalTokens)} (${fmtTokens(k.totalTokens, 2, s)})${tokEq ? ` · 相当于 ${tokEq.headline}（约 ${tokEq.charsText}）` : ""}`,
     `- **新增输入 / 缓存读 / 输出**: ${fmtTokens(k.inputTokens, 2, s)} / ${fmtTokens(k.cacheReadTokens, 2, s)} (命中 ${k.cacheHitRate}%) / ${fmtTokens(k.outputTokens, 2, s)}`,
     `- **折合 API 费用**: ${fmtUsd(k.costUsd, 2)} (≈ ${fmtCny(k.costUsd, s.usdToCny, 0)}) · 缓存节省 ${fmtUsd(k.cacheSavedUsd, 2)}`,
     `- **请求次数**: ${fmtInt(k.requests)} (成功率 ${k.successRate}%)`,
