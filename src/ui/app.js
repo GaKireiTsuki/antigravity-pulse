@@ -512,13 +512,77 @@ function renderHeatmap(days, metric, settings) {
   `;
 }
 
+function polar(cx, cy, radius, angle) {
+  return [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)];
+}
+
+/**
+ * Build a crisp rounded annular sector SVG path (matching the 2.5px rounded-rect
+ * aesthetic of the heatmap & health timeline). Narrow slices stay slim radial arcs
+ * instead of collapsing into circular beads.
+ */
+function buildRoundedArcPath(cx, cy, rIn, rOut, a0, a1, gapPx = 2.2) {
+  const halfGapOut = (gapPx / 2) / rOut;
+  const halfGapIn = (gapPx / 2) / rIn;
+  const oa0 = a0 + halfGapOut;
+  const oa1 = a1 - halfGapOut;
+  const ia0 = a0 + halfGapIn;
+  const ia1 = a1 - halfGapIn;
+
+  const outSpan = oa1 - oa0;
+  const inSpan = ia1 - ia0;
+  if (outSpan <= 0.005 || inSpan <= 0.005) return "";
+
+  const thickness = rOut - rIn;
+  const cr = Math.max(
+    0.4,
+    Math.min(2.6, thickness * 0.32, outSpan * rOut * 0.32, inSpan * rIn * 0.32)
+  );
+  const crOut = cr / rOut;
+  const crIn = cr / rIn;
+
+  const [p1x, p1y] = polar(cx, cy, rOut, oa0 + crOut);
+  const [p2x, p2y] = polar(cx, cy, rOut, oa1 - crOut);
+  const [cOutEndX, cOutEndY] = polar(cx, cy, rOut, oa1);
+  const [p3x, p3y] = polar(cx, cy, rOut - cr, oa1);
+
+  const [p4x, p4y] = polar(cx, cy, rIn + cr, ia1);
+  const [cInEndX, cInEndY] = polar(cx, cy, rIn, ia1);
+  const [p5x, p5y] = polar(cx, cy, rIn, ia1 - crIn);
+
+  const [p6x, p6y] = polar(cx, cy, rIn, ia0 + crIn);
+  const [cInStartX, cInStartY] = polar(cx, cy, rIn, ia0);
+  const [p7x, p7y] = polar(cx, cy, rIn + cr, ia0);
+
+  const [p8x, p8y] = polar(cx, cy, rOut - cr, oa0);
+  const [cOutStartX, cOutStartY] = polar(cx, cy, rOut, oa0);
+
+  const largeOut = oa1 - oa0 - 2 * crOut > Math.PI ? 1 : 0;
+  const largeIn = ia1 - ia0 - 2 * crIn > Math.PI ? 1 : 0;
+  const f = (n) => n.toFixed(2);
+
+  return [
+    `M ${f(p1x)} ${f(p1y)}`,
+    `A ${f(rOut)} ${f(rOut)} 0 ${largeOut} 1 ${f(p2x)} ${f(p2y)}`,
+    `Q ${f(cOutEndX)} ${f(cOutEndY)} ${f(p3x)} ${f(p3y)}`,
+    `L ${f(p4x)} ${f(p4y)}`,
+    `Q ${f(cInEndX)} ${f(cInEndY)} ${f(p5x)} ${f(p5y)}`,
+    `A ${f(rIn)} ${f(rIn)} 0 ${largeIn} 0 ${f(p6x)} ${f(p6y)}`,
+    `Q ${f(cInStartX)} ${f(cInStartY)} ${f(p7x)} ${f(p7y)}`,
+    `L ${f(p8x)} ${f(p8y)}`,
+    `Q ${f(cOutStartX)} ${f(cOutStartY)} ${f(p1x)} ${f(p1y)}`,
+    "Z",
+  ].join(" ");
+}
+
 function renderDonut(models, valueKey, centerVal, centerLabel, settings) {
   const size = 138;
   const cx = size / 2;
   const cy = size / 2;
-  const r = 55;
-  const strokeW = 9.5;
-  const circ = 2 * Math.PI * r;
+  const rOut = 60.5;
+  const rIn = 49.5;
+  const rMid = (rOut + rIn) / 2;
+  const fullAngle = Math.PI * 2;
   const activeModels = models.filter((m) => Number(m[valueKey] || 0) > 0);
   const total = activeModels.reduce((s, m) => s + Number(m[valueKey] || 0), 0);
 
@@ -528,62 +592,58 @@ function renderDonut(models, valueKey, centerVal, centerLabel, settings) {
     const val = Number(m[valueKey] || 0);
     const valStr = valueKey === "costUsd" ? fmtCost(val, settings) : fmtTokens(val, 2, settings);
     const tip = esc(`<strong>${m.label}</strong><br/>${valStr} (100%)`);
-    segs = `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${r}" stroke="${m.color}" data-tip="${tip}"></circle>`;
+    segs = `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${rMid}" fill="none" stroke="${m.color}" stroke-width="${rOut - rIn}" data-tip="${tip}"></circle>`;
   } else if (total > 0 && activeModels.length > 1) {
-    // Allocate rounded pill-arc slots so round caps never collide and tiny slices render as crisp round beads
-    const visualGap = 4.5;
-    const padPerSeg = strokeW + visualGap; // total non-dash allowance per segment (2 * capRadius + gap)
-    const minSlot = padPerSeg + 0.4;
-    const count = activeModels.length;
+    // Keep thin slices as slim radial arcs (min ~4.2px arc including gap), preserving true proportion of main slice
+    const gapPx = 2.2;
+    const minAngle = (gapPx + 2.4) / rIn;
 
-    // Cap to 7 slices max if extreme count so minSlots never exceed circumference
-    const slots = activeModels.map((m) => {
+    const slices = activeModels.map((m) => {
       const val = Number(m[valueKey] || 0);
-      return { m, val, frac: val / total, len: (val / total) * circ };
+      const frac = val / total;
+      return { m, val, frac, angle: frac * fullAngle, locked: false };
     });
 
-    // Lift any tiny slice up to minSlot and trim proportionally from larger slices
     let deficit = 0;
-    let surplusTotal = 0;
-    for (const s of slots) {
-      if (s.len < minSlot) {
-        deficit += minSlot - s.len;
-        s.len = minSlot;
+    let surplus = 0;
+    for (const s of slices) {
+      if (s.angle < minAngle) {
+        deficit += minAngle - s.angle;
+        s.angle = minAngle;
         s.locked = true;
       } else {
-        surplusTotal += s.len - minSlot;
+        surplus += s.angle - minAngle;
       }
     }
-    if (deficit > 0 && surplusTotal > 0) {
-      for (const s of slots) {
+    if (deficit > 0 && surplus > 0) {
+      for (const s of slices) {
         if (!s.locked) {
-          const share = (s.len - minSlot) / surplusTotal;
-          s.len = Math.max(minSlot, s.len - deficit * share);
+          s.angle = Math.max(minAngle, s.angle - deficit * ((s.angle - minAngle) / surplus));
         }
       }
     }
 
-    // Normalize sum back to exact circumference
-    const lenSum = slots.reduce((acc, s) => acc + s.len, 0);
-    const norm = lenSum > 0 ? circ / lenSum : 1;
+    const angleSum = slices.reduce((acc, s) => acc + s.angle, 0);
+    const norm = angleSum > 0 ? fullAngle / angleSum : 1;
 
-    let cursor = 0;
-    for (const s of slots) {
-      const slotLen = s.len * norm;
-      const dash = Math.max(0.2, slotLen - padPerSeg);
-      const start = cursor + padPerSeg / 2;
-      const pct = (s.frac * 100).toFixed(1);
-      const valStr = valueKey === "costUsd" ? fmtCost(s.val, settings) : fmtTokens(s.val, 2, settings);
-      const tip = esc(`<strong>${s.m.label}</strong><br/>${valStr} (${pct}%)`);
-      segs += `<circle class="donut-seg" cx="${cx}" cy="${cy}" r="${r}" stroke="${s.m.color}" stroke-dasharray="${dash.toFixed(2)} ${(circ - dash).toFixed(2)}" stroke-dashoffset="${(-start).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})" data-tip="${tip}"></circle>`;
-      cursor += slotLen;
+    let cursor = -Math.PI / 2;
+    for (const s of slices) {
+      const span = s.angle * norm;
+      const d = buildRoundedArcPath(cx, cy, rIn, rOut, cursor, cursor + span, gapPx);
+      if (d) {
+        const pct = (s.frac * 100).toFixed(1);
+        const valStr = valueKey === "costUsd" ? fmtCost(s.val, settings) : fmtTokens(s.val, 2, settings);
+        const tip = esc(`<strong>${s.m.label}</strong><br/>${valStr} (${pct}%)`);
+        segs += `<path class="donut-seg" d="${d}" fill="${s.m.color}" data-tip="${tip}"></path>`;
+      }
+      cursor += span;
     }
   }
 
   return `
     <div class="donut-box">
       <svg class="donut-svg" viewBox="0 0 ${size} ${size}" role="img" aria-label="${esc(centerLabel)}">
-        <circle class="donut-track" cx="${cx}" cy="${cy}" r="${r}"></circle>
+        <circle class="donut-track" cx="${cx}" cy="${cy}" r="${rMid}"></circle>
         <g class="donut-ring">${segs}</g>
         <text x="${cx}" y="${cy - 1}" text-anchor="middle" class="donut-center-val num">${esc(centerVal)}</text>
         <text x="${cx}" y="${cy + 15}" text-anchor="middle" class="donut-center-lbl">${esc(centerLabel)}</text>
