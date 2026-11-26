@@ -1,0 +1,18 @@
+{
+  "name": "antigravity-pulse",
+  "displayName": "Antigravity Pulse",
+  "version": "1.0.0",
+  "description": "原生 Antigravity 实时可视化监控插件：融合右侧上下文拆解与滚动额度面板、左侧全屏用量热力图、模型健康时间线、Token/费用分布环形图与订阅回本追踪。",
+  "logo": "assets/logo.svg",
+  "author": {
+    "name": "GaKireiTsuki",
+    "url": "https://github.com/GaKireiTsuki"
+  },
+  "homepage": "https://github.com/GaKireiTsuki/antigravity-pulse",
+  "repository": "https://github.com/GaKireiTsuki/antigravity-pulse",
+  "suggestedPrompts": [
+    "打开 Antigravity Pulse 实时监控面板",
+    "查看我至今用了多少 Tokens、折合多少成本及订阅回本倍数",
+    "分析当前会话的上下文窗口占用与缓存命中情况"
+  ]
+}

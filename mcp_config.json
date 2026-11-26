@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "pulse": {
+      "command": "node",
+      "args": [
+        "${PLUGIN_ROOT}/dist/server.mjs"
+      ],
+      "env": {
+        "PULSE_DATA_DIR": "${PLUGIN_DATA}"
+      }
+    }
+  }
+}

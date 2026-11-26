@@ -1,0 +1,19 @@
+{
+  "name": "antigravity-pulse",
+  "version": "1.0.0",
+  "description": "Native Antigravity MCP App plugin for real-time token usage, cost, ROI, context breakdown, and model health visualization.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "validate": "/Users/megumi/.gemini/bin/agy plugin validate --strict .",
+    "install:local": "bash scripts/install.sh"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/ext-apps": "latest",
+    "@modelcontextprotocol/sdk": "latest",
+    "esbuild": "latest",
+    "zod": "^4.2.0"
+  }
+}
