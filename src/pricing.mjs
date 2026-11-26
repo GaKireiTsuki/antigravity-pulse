@@ -20,9 +20,15 @@ export const DEFAULT_SETTINGS = {
   pollIntervalMs: 2500, // 0 = manual only
   budgets: {
     gemini5hUsd: 135,
-    gemini7dUsd: 810,
-    claude5hUsd: 60,
-    claude7dUsd: 360,
+    gemini7dUsd: 580,
+    claude5hUsd: 15,
+    claude7dUsd: 30,
+  },
+  quotaAnchors: {
+    gemini5h: null, // { remainingPct, resetsAtMs, observedAtMs }
+    gemini7d: null,
+    claude5h: null,
+    claude7d: null,
   },
   contextLimits: {
     default: 512000,
@@ -185,6 +191,17 @@ export const MODEL_CATALOG = {
     cache: 0.3,
     output: 15.0,
   },
+  "gpt-oss-120b": {
+    label: "GPT-OSS 120B",
+    short: "gpt-oss-120b",
+    family: "GPT",
+    pool: "claude",
+    color: "#14B8A6",
+    contextLimit: 128000,
+    input: 0.5,
+    cache: 0.05,
+    output: 2.0,
+  },
   "gemini-3.8-flash": {
     label: "Gemini 3.8 Flash",
     short: "gemini-3.8-flash",
@@ -281,6 +298,7 @@ export function normalizeModelKey(rawModel) {
   if (m.includes("fable-5-2") || m.includes("fable-5.2")) return "claude-fable-5-2";
   if (m.includes("opus-4-6") || m.includes("opus-4-5") || m.includes("opus-4-8")) return "claude-opus-4-6";
   if (m.includes("sonnet-4-6") || m.includes("sonnet-4-5")) return "claude-sonnet-4-6";
+  if (m.includes("gpt-oss") || m.includes("gpt-")) return "gpt-oss-120b";
 
   if (m.includes("3.8-flash") || m.includes("3.7-flash")) return "gemini-3.8-flash";
   if (m.includes("3.6-flash")) return "gemini-3.6-flash";
@@ -320,15 +338,15 @@ export function getModelInfo(rawModel, settings = DEFAULT_SETTINGS) {
     };
   }
 
-  const isClaude = key.includes("claude");
+  const isClaudeOrGpt = key.includes("claude") || key.includes("gpt");
   const hash = [...key].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
   return {
     key,
     raw: rawModel || "unknown",
     label: rawModel || "Unknown Model",
     short: key,
-    family: isClaude ? "Claude" : "Gemini",
-    pool: isClaude ? "claude" : "gemini",
+    family: key.includes("gpt") ? "GPT" : isClaudeOrGpt ? "Claude" : "Gemini",
+    pool: isClaudeOrGpt ? "claude" : "gemini",
     color: MODEL_COLORS[hash % MODEL_COLORS.length],
     contextLimit: ctxLimit,
     baseInput: custom?.input ?? 2.0,

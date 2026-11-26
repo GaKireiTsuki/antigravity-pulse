@@ -138,6 +138,7 @@ function fmtResetCountdown(w) {
 }
 
 function quotaSourceTag(src) {
+  if (src === "calibrated") return "已校准";
   if (src === "anchor") return "锚点反推";
   if (src === "estimated") return "自动推算";
   if (src === "manual") return "手动设定";
@@ -198,6 +199,7 @@ const state = {
   range: "all",
   modelFilter: "all",
   selectedCid: null,
+  quotaScope: "weekly", // "weekly" | "5h" | "cycle"
   heatmapMetric: "tokens",
   heatmapPinnedRight: true,
   heatmapScrollLeft: null,
@@ -850,22 +852,20 @@ function renderMonitorContent(snap, compactMode) {
           )
           .join("")}
       </div>`
-    : cal?.totalAnchors > 0
-      ? `<div class="note-box">
-          已由 ${cal.totalAnchors} 条历史官方配额锚点自动校准：Gemini 5h ≈ ${fmtCost(cal.gemini5hCapUsd, s, 0)} · 7天周限 ≈ ${fmtCost(cal.gemini7dCapUsd, s, 0)}${cal.lastGeminiResetAt ? `（上轮已于 ${fmtTimeShort(cal.lastGeminiResetAt)} 重置）` : ""}
-        </div>`
-      : "";
+    : `<div class="note-box">
+        双池独立推算：Gemini 周限 ≈ ${fmtCost(cal.gemini7dCapUsd, s, 0)} (5h ≈ ${fmtCost(cal.gemini5hCapUsd, s, 0)}) · Claude &amp; GPT 周限 ≈ ${fmtCost(cal.claude7dCapUsd, s, 0)} (5h ≈ ${fmtCost(cal.claude5hCapUsd, s, 0)})，可在「价格与订阅」同步 View Usage 校准。
+      </div>`;
 
   const roiHtml = sub?.enabled
     ? `
       <div class="roi-banner">
         <div style="min-width:0">
-          <div style="font-size:12px;color:var(--fg-secondary);font-weight:500">${esc(sub.planName)} · 本周期剩 ${esc(fmtCost(sub.cycleRemainingUsd, s))} (${sub.cycleRemainingPct}%)</div>
+          <div style="font-size:12px;color:var(--fg-secondary);font-weight:500">${esc(sub.planName)} · Gemini 周剩 ${rw.gemini7d.remainingPct}% · Claude/GPT 周剩 ${rw.claude7d.remainingPct}%</div>
           <div style="font-size:11.5px;color:var(--fg-muted);margin-top:2px">
             距续费 ${sub.cycleRemainingDays} 天 · 已回本 ${sub.roiMultiplier}x · 净省 ${fmtCost(Math.max(0, sub.netSavedUsd), s)}
           </div>
         </div>
-        <div class="roi-big num">${sub.cycleRemainingPct}%</div>
+        <div class="roi-big num">${sub.roiMultiplier}x</div>
       </div>
     `
     : "";
@@ -873,20 +873,17 @@ function renderMonitorContent(snap, compactMode) {
   const quotaCardHtml = `
     <div class="card">
       <div class="card-head">
-        <div class="card-title">${icon("gauge", "sm muted")}<span>本地滚动消耗 & 订阅回本</span></div>
+        <div class="card-title">${icon("gauge", "sm muted")}<span>双池滚动额度 & 订阅回本</span></div>
         <div class="card-sub">${esc(sub?.tierBadge || "Local")}</div>
       </div>
       ${roiHtml}
       <div class="window-list">
+        ${renderWindowRow("周限 (Gemini)", rw.gemini7d, false)}
         ${renderWindowRow("5h (Gemini)", rw.gemini5h, false)}
-        ${renderWindowRow("7天 (Gemini)", rw.gemini7d, false)}
-        ${renderWindowRow("5h (Claude)", rw.claude5h, true)}
-        ${renderWindowRow("7天 (Claude)", rw.claude7d, true)}
+        ${renderWindowRow("周限 (Claude & GPT)", rw.claude7d, true)}
+        ${renderWindowRow("5h (Claude & GPT)", rw.claude5h, true)}
       </div>
       ${quotaHintsHtml}
-      <div class="note-box">
-        进度条基于本地实际消耗相对自定义参考预算（可在「设置」调整），官方未向本地插件开放服务端实时剩余百分比接口。
-      </div>
     </div>
   `;
 
@@ -994,56 +991,60 @@ function renderOverviewTab(snap) {
     </div>
   `;
 
-  // Subscription Cycle Remaining Quota Card (Overview first screen)
-  const rw = snap.rollingWindows || {};
+  // Dual Isolated Quota Pools Card (Gemini Pool vs Claude & GPT Pool)
+  const pools = snap.quotaPools;
   const cal = snap.quotaCalibration;
   let subQuotaCard = "";
-  if (sub?.enabled) {
-    const remPct = sub.cycleRemainingPct ?? 0;
-    const isCycleOver = sub.cycleExceededUsd > 0;
-    const tone = isCycleOver || remPct <= 15 ? "err" : remPct <= 35 ? "warn" : "ok";
-    const barCls = isCycleOver || remPct <= 15 ? "danger" : remPct <= 35 ? "warn" : "roi";
-    const timeRemainPct = Math.max(0, Math.min(100, Number((100 - (sub.cycleTimePct || 0)).toFixed(1))));
-    const runwayText = isCycleOver
-      ? `已超出参考上限 ${fmtCost(sub.cycleExceededUsd, s)}`
-      : sub.runwayDays !== null
-        ? `按活跃日均 ${fmtCost(sub.dailyBurnUsd, s)} 预计续航 ${sub.runwayDays} 天`
-        : "本周期暂无消耗";
+  if (sub?.enabled && pools) {
+    const scope = state.quotaScope || "weekly"; // "weekly" | "5h" | "cycle"
+    const scopeLabel = scope === "5h" ? "5h 剩余" : scope === "cycle" ? "本周期推算剩余" : "本周剩余";
 
-    const poolItems = [
-      { label: "5h Gemini", w: rw.gemini5h, isClaude: false },
-      { label: "7天 Gemini", w: rw.gemini7d, isClaude: false },
-      { label: "5h Claude", w: rw.claude5h, isClaude: true },
-      { label: "7天 Claude", w: rw.claude7d, isClaude: true },
-    ]
-      .filter((p) => p.w)
-      .map((p) => {
-        const w = p.w;
+    const renderPoolPanel = (poolData, isClaude) => {
+      const w5 = poolData.win5h;
+      const w7 = poolData.win7d;
+      const cyc = poolData.cycle;
+
+      const focusRemUsd =
+        scope === "5h" ? w5.remainingUsd : scope === "cycle" ? cyc.remainingUsd : w7.remainingUsd;
+      const focusCapUsd =
+        scope === "5h" ? w5.budgetUsd : scope === "cycle" ? cyc.quotaUsd : w7.budgetUsd;
+      const focusUsedUsd =
+        scope === "5h" ? w5.costUsd : scope === "cycle" ? cyc.usedUsd : w7.costUsd;
+      const focusRemPct =
+        scope === "5h" ? w5.remainingPct : scope === "cycle" ? cyc.remainingPct : w7.remainingPct;
+      const focusExcUsd =
+        scope === "5h" ? w5.exceededUsd : scope === "cycle" ? cyc.exceededUsd : w7.exceededUsd;
+      const focusSource =
+        scope === "5h" ? w5.source : scope === "cycle" ? cyc.source : w7.source;
+
+      const tone = focusExcUsd > 0 || focusRemPct <= 15 ? "err" : focusRemPct <= 35 ? "warn" : "ok";
+
+      const renderBar = (label, w) => {
         const isOver = w.exceededUsd > 0;
-        const pBarCls = isOver
+        const barCls = isOver
           ? "danger"
           : w.remainingPct <= 15
             ? "danger"
             : w.remainingPct <= 35
               ? "warn"
-              : p.isClaude
+              : isClaude
                 ? "claude"
                 : "";
         const fillPct = isOver ? 100 : Math.max(w.remainingPct > 0 ? 2 : 0, w.remainingPct);
-        const valText = isOver
+        const valStr = isOver
           ? `<span style="color:var(--red)">超参考 +${esc(fmtCost(w.exceededUsd, s, 0))}</span>`
-          : `剩 ${esc(fmtCost(w.remainingUsd, s, 0))} <span style="color:var(--fg-muted);font-weight:500">(${w.remainingPct}%)</span>`;
+          : `剩 ${esc(fmtCost(w.remainingUsd, s, 0))} <span style="color:var(--fg-muted)">(${w.remainingPct}%)</span>`;
         const tip = esc(
-          `<strong>${p.label}（${quotaSourceTag(w.source)}）</strong><br/>本轮已用: ${fmtCost(w.costUsd, s)} (${fmtTokens(w.tokens, 1, s)})<br/>推算满池: ${fmtCost(w.budgetUsd, s)}<br/>${isOver ? `超出参考: +${fmtCost(w.exceededUsd, s)}` : `剩余可用: ${fmtCost(w.remainingUsd, s)} (${w.remainingPct}%)`}<br/>${fmtResetCountdown(w)}`
+          `<strong>${poolData.name} · ${label}</strong><br/>来源: ${quotaSourceTag(w.source)}<br/>已用: ${fmtCost(w.costUsd, s)} (${fmtTokens(w.tokens, 1, s)})<br/>推算满池: ${fmtCost(w.budgetUsd, s)}<br/>${isOver ? `超参考: +${fmtCost(w.exceededUsd, s)}` : `剩余: ${fmtCost(w.remainingUsd, s)} (${w.remainingPct}%)`}<br/>${fmtResetCountdown(w)}`
         );
         return `
-          <div class="quota-pool-item" data-tip="${tip}">
+          <div data-tip="${tip}">
             <div class="quota-pool-top">
-              <span class="quota-pool-label">${p.label}</span>
-              <span class="quota-pool-val num">${valText}</span>
+              <span class="quota-pool-label">${label}</span>
+              <span class="quota-pool-val num">${valStr}</span>
             </div>
-            <div class="bar-track">
-              <div class="bar-fill ${pBarCls}" style="width:${fillPct}%"></div>
+            <div class="bar-track" style="margin:4px 0 3px">
+              <div class="bar-fill ${barCls}" style="width:${fillPct}%"></div>
             </div>
             <div class="quota-pool-sub num">
               <span>已用 ${fmtTokens(w.tokens, 1, s)} / ${esc(fmtCost(w.budgetUsd, s, 0))}</span>
@@ -1051,15 +1052,73 @@ function renderOverviewTab(snap) {
             </div>
           </div>
         `;
-      })
-      .join("");
+      };
 
-    const barTip = esc(
-      `<strong>本订阅周期 (${fmtDateShort(sub.cycleStartMs)} ~ ${fmtDateShort(sub.cycleEndMs)})</strong><br/>额度来源: ${quotaSourceTag(sub.cycleQuotaSource)}<br/>周期推算总额: ${fmtCost(sub.cycleQuotaUsd, s)}<br/>本周期已用: ${fmtCost(sub.cycleUsedUsd, s)}<br/>剩余可用: ${fmtCost(sub.cycleRemainingUsd, s)} (${remPct}%)<br/>周期剩余时间: ${sub.cycleRemainingDays} / ${sub.cycleTotalDays} 天`
-    );
+      const modelRows = (poolData.modelEstimates || [])
+        .map((me) => {
+          const remTok =
+            scope === "5h"
+              ? me.fiveHourRemainingTokens
+              : scope === "cycle"
+                ? me.cycleRemainingTokens
+                : me.weeklyRemainingTokens;
+          const noCacheTok = scope === "cycle" ? me.noCacheCycleTokens : me.noCacheWeeklyTokens;
+          const basisText = me.basis === "observed" ? "按该模型实测均价" : "按全局缓存比例估算";
+          const tip = esc(
+            `<strong>${me.label}（${poolData.name}）</strong><br/>${scopeLabel}约可用: <strong>${fmtTokens(remTok, 2, s)}</strong><br/>综合均价: ${fmtUsd(me.blendedPerMillionUsd, 2)} / 百万 (${basisText})<br/>无缓存保底参考: ${fmtTokens(noCacheTok, 2, s)}<br/>本周期该模型已用: ${fmtTokens(me.cycleUsedTokens, 2, s)} (${fmtCost(me.cycleUsedUsd, s)})`
+          );
+          return `
+            <div class="pool-model-row" data-tip="${tip}">
+              <span class="pool-model-left">
+                <span class="model-dot" style="background:${me.color}"></span>
+                <span style="font-weight:500">${esc(me.label)}</span>
+              </span>
+              <span class="pool-model-right num">
+                <span style="font-weight:700">约 ${fmtTokens(remTok, 1, s)}</span>
+                <span style="font-size:10.5px;color:var(--fg-muted)">${fmtUsd(me.blendedPerMillionUsd, 2)}/M</span>
+              </span>
+            </div>
+          `;
+        })
+        .join("");
+
+      return `
+        <div class="pool-panel">
+          <div class="pool-panel-head">
+            <div class="pool-panel-title">
+              <span class="model-dot" style="background:${poolData.color};width:9px;height:9px"></span>
+              <span>${esc(poolData.name)}</span>
+              <span class="badge neutral">${quotaSourceTag(focusSource)}</span>
+            </div>
+            <span class="badge ${tone} num">${focusExcUsd > 0 ? "超参考" : `${scopeLabel} ${focusRemPct}%`}</span>
+          </div>
+
+          <div class="pool-hero-row">
+            <div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap">
+              <span class="pool-hero-val ${tone} num">${focusExcUsd > 0 ? `已超 ${esc(fmtCost(focusExcUsd, s))}` : esc(fmtCost(focusRemUsd, s))}</span>
+              ${focusExcUsd <= 0 && fmtCostSub(focusRemUsd, s) ? `<span class="kpi-sub-val num">${esc(fmtCostSub(focusRemUsd, s))}</span>` : ""}
+            </div>
+            <span class="num" style="font-size:11.5px;color:var(--fg-muted)">已用 ${esc(fmtCost(focusUsedUsd, s))} / ${esc(fmtCost(focusCapUsd, s, 0))}</span>
+          </div>
+
+          <div class="pool-bars">
+            ${renderBar("周限 (7天)", w7)}
+            ${renderBar("5h 限额", w5)}
+          </div>
+
+          <div class="pool-models-wrap">
+            <div class="pool-models-title">
+              <span>${scopeLabel}折合本池各模型可用 Token</span>
+              <span>按你的缓存率估算</span>
+            </div>
+            ${modelRows}
+          </div>
+        </div>
+      `;
+    };
 
     const activeAlerts = (snap.quotaHints || []).length
-      ? `<div style="margin-top:9px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11.5px;color:var(--fg-muted)">
+      ? `<div style="margin-top:10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11.5px;color:var(--fg-muted)">
           <span>当前生效的官方低配额告警：</span>
           ${snap.quotaHints
             .map(
@@ -1070,84 +1129,33 @@ function renderOverviewTab(snap) {
         </div>`
       : "";
 
-    const calNote =
-      cal?.totalAnchors > 0
-        ? `<div style="margin-top:8px;font-size:11.5px;color:var(--fg-muted)">
-            已通过 <strong>${cal.totalAnchors}</strong> 条日志官方配额锚点自动反推：Gemini 5h 满池 ≈ ${fmtCost(cal.gemini5hCapUsd, s, 0)} · 7天周限推算 ≈ ${fmtCost(cal.gemini7dCapUsd, s, 0)} · 订阅期(${sub.cycleTotalDays}天)推算总额 ≈ ${fmtCost(sub.cycleQuotaUsd, s, 0)}${cal.lastGeminiResetAt ? `（上轮 5h 已于 ${fmtTimeShort(cal.lastGeminiResetAt)} 重置）` : ""}
-          </div>`
-        : `<div style="margin-top:8px;font-size:11.5px;color:var(--fg-muted)">
-            当前按本地用量与 5h/周限模型自动推算（触发低配额日志后将自动用官方锚点精确校准）。
-          </div>`;
-
-    const modelEstHtml =
-      (sub.modelEstimates || []).length > 0
-        ? `<div class="quota-models-section">
-            <div class="quota-models-head">
-              <span style="font-weight:600;color:var(--fg-primary)">剩余额度折合各模型可用 Token</span>
-              <span style="color:var(--fg-muted)">按你的历史缓存命中率 (${k.cacheHitRate}%) 与综合均价折算</span>
-            </div>
-            <div class="quota-models-grid">
-              ${sub.modelEstimates
-                .map((me) => {
-                  const basisText = me.basis === "observed" ? "按该模型实测均价" : "按全局缓存结构估算";
-                  const tip = esc(
-                    `<strong>${me.label}</strong><br/>剩余额度约可用: <strong>${fmtTokens(me.estRemainingTokens, 2, s)}</strong><br/>综合均价: ${fmtUsd(me.blendedPerMillionUsd, 2)} / 百万 (${basisText})<br/>若完全无缓存保底: ${fmtTokens(me.noCacheRemainingTokens, 2, s)}<br/>本周期该模型已用: ${fmtTokens(me.cycleUsedTokens, 2, s)} (${fmtCost(me.cycleUsedUsd, s)})`
-                  );
-                  return `
-                    <div class="quota-model-chip" data-tip="${tip}">
-                      <div class="quota-model-left">
-                        <span class="model-dot" style="background:${me.color}"></span>
-                        <div style="min-width:0">
-                          <div class="quota-model-name">${esc(me.label)}</div>
-                          <div class="quota-model-used num">${me.cycleUsedTokens > 0 ? `本周期已用 ${fmtTokens(me.cycleUsedTokens, 1, s)}` : "本周期暂未使用"}</div>
-                        </div>
-                      </div>
-                      <div class="quota-model-right num">
-                        <div class="quota-model-rem">约 ${fmtTokens(me.estRemainingTokens, 1, s)}</div>
-                        <div class="quota-model-rate">${fmtUsd(me.blendedPerMillionUsd, 2)}/M</div>
-                      </div>
-                    </div>
-                  `;
-                })
-                .join("")}
-            </div>
-          </div>`
-        : "";
+    const calNote = `<div style="margin-top:9px;font-size:11.5px;color:var(--fg-muted)">
+      Gemini 池（5h ≈ ${fmtCost(cal.gemini5hCapUsd, s, 0)} · 周限 ≈ ${fmtCost(cal.gemini7dCapUsd, s, 0)}）与 Claude &amp; GPT 池（5h ≈ ${fmtCost(cal.claude5hCapUsd, s, 0)} · 周限 ≈ ${fmtCost(cal.claude7dCapUsd, s, 0)}）独立核算${cal?.totalAnchors > 0 ? ` · 已融合 ${cal.totalAnchors} 条日志官方锚点` : ""}；点击右上角「校准」可随时同步官方 View Usage 百分比。
+    </div>`;
 
     subQuotaCard = `
       <div class="card">
         <div class="card-head">
           <div class="card-title">
             ${icon("gauge", "sm muted")}
-            <span>订阅期剩余额度</span>
+            <span>订阅双池剩余额度</span>
             <span class="badge info">${esc(sub.planName)}</span>
-            <span class="badge neutral">${quotaSourceTag(sub.cycleQuotaSource)}</span>
             <span class="badge neutral num">${fmtDateShort(sub.cycleStartMs)} ~ ${fmtDateShort(sub.cycleEndMs)} · 剩 ${sub.cycleRemainingDays} 天</span>
           </div>
-          <button class="btn sm" data-action="set-tab" data-val="pricing">调整额度</button>
-        </div>
-
-        <div class="quota-hero">
-          <div class="quota-hero-main">
-            <span class="quota-remain-val ${tone} num">${isCycleOver ? `已超 ${esc(fmtCost(sub.cycleExceededUsd, s))}` : esc(fmtCost(sub.cycleRemainingUsd, s))}</span>
-            ${!isCycleOver && fmtCostSub(sub.cycleRemainingUsd, s) ? `<span class="kpi-sub-val num">${esc(fmtCostSub(sub.cycleRemainingUsd, s))}</span>` : ""}
-            <span class="badge ${tone} num">${isCycleOver ? "超参考上限" : `剩余 ${remPct}%`}</span>
-          </div>
-          <div class="quota-hero-meta num">
-            <span>本周期已用 <strong>${esc(fmtCost(sub.cycleUsedUsd, s))}</strong> / ${esc(fmtCost(sub.cycleQuotaUsd, s))}</span>
-            <span>${esc(runwayText)}</span>
+          <div class="filter-group">
+            <div class="seg-switch" data-slider-key="quota-scope">
+              <button class="seg-btn ${scope === "weekly" ? "active" : ""}" data-action="quota-scope" data-val="weekly">本周剩余</button>
+              <button class="seg-btn ${scope === "5h" ? "active" : ""}" data-action="quota-scope" data-val="5h">5h 剩余</button>
+              <button class="seg-btn ${scope === "cycle" ? "active" : ""}" data-action="quota-scope" data-val="cycle">本周期</button>
+            </div>
+            <button class="btn sm" data-action="set-tab" data-val="pricing">校准</button>
           </div>
         </div>
 
-        <div class="quota-bar-wrap" data-tip="${barTip}">
-          <div class="quota-bar-track">
-            <div class="bar-fill ${barCls}" style="width:${isCycleOver ? 100 : Math.max(remPct > 0 ? 1.5 : 0, remPct)}%"></div>
-          </div>
-          <div class="quota-bar-marker" style="left:${timeRemainPct}%" title="剩余时间进度 ${timeRemainPct}%"></div>
+        <div class="dual-pools-grid">
+          ${renderPoolPanel(pools.gemini, false)}
+          ${renderPoolPanel(pools.claude, true)}
         </div>
-
-        <div class="quota-pools-grid">${poolItems}</div>
-        ${modelEstHtml}
         ${activeAlerts}
         ${calNote}
       </div>
@@ -1617,84 +1625,146 @@ function renderPricingTab(snap) {
     })
     .join("");
 
+  const rw = snap.rollingWindows || {};
+  const splitRemaining = (ms) => {
+    if (!ms || ms <= 0) return { d: "", h: "", m: "" };
+    const totalMin = Math.round(ms / 60000);
+    return {
+      d: Math.floor(totalMin / 1440),
+      h: Math.floor((totalMin % 1440) / 60),
+      m: totalMin % 60,
+    };
+  };
+  const g7t = splitRemaining(rw.gemini7d?.resetInMs);
+  const g5t = splitRemaining(rw.gemini5h?.resetInMs);
+  const c7t = splitRemaining(rw.claude7d?.resetInMs);
+  const c5t = splitRemaining(rw.claude5h?.resetInMs);
+
+  const pctVal = (v) => (Number.isFinite(v) ? Math.round(v) : "");
+
   return `
-    <div class="split-locked-stack">
-      <div class="card card-fixed">
-        <div class="card-head">
-          <div class="card-title">订阅计划 & 汇率设置</div>
-          <button class="btn solid sm" data-action="save-sub-pricing">保存并实时重算</button>
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">同步官方 View Usage 双池校准（可选）</div>
+        <div class="filter-group">
+          <button class="btn sm" data-action="clear-anchors">清除校准</button>
+          <button class="btn solid sm" data-action="save-anchors">保存校准并反推</button>
         </div>
-        <div class="form-grid">
-          <div class="field">
-            <label>订阅名称</label>
-            <input class="text-input" id="sub-plan-name" value="${esc(sub.planName || "Google AI Ultra")}" />
+      </div>
+      <div class="cal-grid">
+        <div class="cal-box">
+          <div class="pool-panel-title" style="font-size:12px"><span class="model-dot" style="background:#5B9BFF"></span>Gemini 模型池</div>
+          <div class="cal-row">
+            <span>周限 (7天)</span>
+            <span class="cal-inputs num">
+              剩 <input class="cal-num" id="cal-g7-pct" type="number" min="0" max="100" value="${pctVal(rw.gemini7d?.remainingPct)}" />%
+              · <input class="cal-num" id="cal-g7-d" type="number" min="0" max="7" value="${g7t.d}" />天
+              <input class="cal-num" id="cal-g7-h" type="number" min="0" max="23" value="${g7t.h}" />时后重置
+            </span>
           </div>
-          <div class="field">
-            <label>档位徽章</label>
-            <input class="text-input" id="sub-tier-badge" value="${esc(sub.tierBadge || "Ultra · 5x")}" />
+          <div class="cal-row">
+            <span>5h 限额</span>
+            <span class="cal-inputs num">
+              剩 <input class="cal-num" id="cal-g5-pct" type="number" min="0" max="100" value="${pctVal(rw.gemini5h?.remainingPct)}" />%
+              · <input class="cal-num" id="cal-g5-h" type="number" min="0" max="5" value="${g5t.h}" />时
+              <input class="cal-num" id="cal-g5-m" type="number" min="0" max="59" value="${g5t.m}" />分后重置
+            </span>
           </div>
-          <div class="field">
-            <label>月费 (USD)</label>
-            <input class="text-input num" id="sub-monthly-usd" type="number" step="1" value="${sub.monthlyUsd ?? 99}" />
+        </div>
+
+        <div class="cal-box">
+          <div class="pool-panel-title" style="font-size:12px"><span class="model-dot" style="background:#A78BFA"></span>Claude &amp; GPT 模型池</div>
+          <div class="cal-row">
+            <span>周限 (7天)</span>
+            <span class="cal-inputs num">
+              剩 <input class="cal-num" id="cal-c7-pct" type="number" min="0" max="100" value="${pctVal(rw.claude7d?.remainingPct)}" />%
+              · <input class="cal-num" id="cal-c7-d" type="number" min="0" max="7" value="${c7t.d}" />天
+              <input class="cal-num" id="cal-c7-h" type="number" min="0" max="23" value="${c7t.h}" />时后重置
+            </span>
           </div>
-          <div class="field">
-            <label>额度估算模式</label>
-            <select class="select-pill" id="sub-auto-quota">
-              <option value="true" ${sub.autoQuota !== false ? "selected" : ""}>自动推算（日志锚点 + 5h/周限）</option>
-              <option value="false" ${sub.autoQuota === false ? "selected" : ""}>手动固定上限</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>手动周期总额度 (USD)</label>
-            <input class="text-input num" id="sub-cycle-quota" type="number" step="50" value="${sub.cycleQuotaUsd ?? 1600}" />
-          </div>
-          <div class="field">
-            <label>USD → CNY 参考汇率</label>
-            <input class="text-input num" id="cfg-fx" type="number" step="0.01" value="${s.usdToCny ?? 6.67}" />
-          </div>
-          <div class="field">
-            <label>Claude 缓存写倍率</label>
-            <select class="select-pill" id="cfg-claude-mult">
-              <option value="1.25" ${Number(s.claudeCacheWriteMultiplier) === 1.25 ? "selected" : ""}>1.25x (5分钟缓存写)</option>
-              <option value="1" ${Number(s.claudeCacheWriteMultiplier) === 1 ? "selected" : ""}>1.0x (基础输入价)</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>每月账单日 (1-28)</label>
-            <input class="text-input num" id="sub-billing-day" type="number" min="1" max="28" value="${sub.billingDay ?? 1}" />
+          <div class="cal-row">
+            <span>5h 限额</span>
+            <span class="cal-inputs num">
+              剩 <input class="cal-num" id="cal-c5-pct" type="number" min="0" max="100" value="${pctVal(rw.claude5h?.remainingPct)}" />%
+              · <input class="cal-num" id="cal-c5-h" type="number" min="0" max="5" value="${c5t.h}" />时
+              <input class="cal-num" id="cal-c5-m" type="number" min="0" max="59" value="${c5t.m}" />分后重置
+            </span>
           </div>
         </div>
       </div>
+    </div>
 
-      <div class="card list-card">
-        <div class="list-card-head">
-          <div class="card-head">
-            <div class="card-title">模型参考单价（美元 / 百万 Tokens）</div>
-            <div class="filter-group">
-              <button class="btn sm" data-action="reset-pricing">恢复默认</button>
-              <button class="btn solid sm" data-action="save-sub-pricing">保存单价</button>
-            </div>
-          </div>
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">订阅计划 & 汇率设置</div>
+        <button class="btn solid sm" data-action="save-sub-pricing">保存并实时重算</button>
+      </div>
+      <div class="form-grid">
+        <div class="field">
+          <label>订阅名称</label>
+          <input class="text-input" id="sub-plan-name" value="${esc(sub.planName || "Google AI Ultra")}" />
         </div>
-        <div class="list-card-body" data-preserve-scroll="pricing-list">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>模型</th>
-                <th>系列</th>
-                <th class="r">输入 ($/1M)</th>
-                <th class="r">缓存读 ($/1M)</th>
-                <th class="r">输出 ($/1M)</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
+        <div class="field">
+          <label>档位徽章</label>
+          <input class="text-input" id="sub-tier-badge" value="${esc(sub.tierBadge || "Ultra · 5x")}" />
         </div>
-        <div class="list-card-foot" style="padding-top:6px;margin-top:4px">
-          <div style="font-size:11px;color:var(--fg-muted)">
-            内置时间分段定价：Gemini 4 Carbon / Argon 在 2026-12-01 前按推广价 ($2 / $0.10 / $10)，之后按正式价 ($4 / $0.20 / $20)。
-          </div>
+        <div class="field">
+          <label>月费 (USD)</label>
+          <input class="text-input num" id="sub-monthly-usd" type="number" step="1" value="${sub.monthlyUsd ?? 99}" />
         </div>
+        <div class="field">
+          <label>额度估算模式</label>
+          <select class="select-pill" id="sub-auto-quota">
+            <option value="true" ${sub.autoQuota !== false ? "selected" : ""}>自动推算（双池锚点 + 校准）</option>
+            <option value="false" ${sub.autoQuota === false ? "selected" : ""}>手动固定上限</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>手动周期总额度 (USD)</label>
+          <input class="text-input num" id="sub-cycle-quota" type="number" step="50" value="${sub.cycleQuotaUsd ?? 1600}" />
+        </div>
+        <div class="field">
+          <label>USD → CNY 参考汇率</label>
+          <input class="text-input num" id="cfg-fx" type="number" step="0.01" value="${s.usdToCny ?? 6.67}" />
+        </div>
+        <div class="field">
+          <label>Claude 缓存写倍率</label>
+          <select class="select-pill" id="cfg-claude-mult">
+            <option value="1.25" ${Number(s.claudeCacheWriteMultiplier) === 1.25 ? "selected" : ""}>1.25x (5分钟缓存写)</option>
+            <option value="1" ${Number(s.claudeCacheWriteMultiplier) === 1 ? "selected" : ""}>1.0x (基础输入价)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>每月账单日 (1-28)</label>
+          <input class="text-input num" id="sub-billing-day" type="number" min="1" max="28" value="${sub.billingDay ?? 1}" />
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">模型参考单价（美元 / 百万 Tokens）</div>
+        <div class="filter-group">
+          <button class="btn sm" data-action="reset-pricing">恢复默认</button>
+          <button class="btn solid sm" data-action="save-sub-pricing">保存单价</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>模型</th>
+              <th>系列</th>
+              <th class="r">输入 ($/1M)</th>
+              <th class="r">缓存读 ($/1M)</th>
+              <th class="r">输出 ($/1M)</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div class="note-box">
+        内置时间分段定价：Gemini 4 Carbon / Argon 在 2026-12-01 前按推广价 ($2 / $0.10 / $10)，之后按正式价 ($4 / $0.20 / $20)。
       </div>
     </div>
   `;
@@ -1736,20 +1806,20 @@ function renderSettingsTab(snap) {
           </select>
         </div>
         <div class="field">
-          <label>Gemini 5h 参考预算 (USD)</label>
-          <input class="text-input num" id="b-g5" type="number" step="5" value="${b.gemini5hUsd ?? 80}" />
+          <label>Gemini 5h 手动预算 (USD)</label>
+          <input class="text-input num" id="b-g5" type="number" step="5" value="${b.gemini5hUsd ?? 135}" />
         </div>
         <div class="field">
-          <label>Gemini 7天 参考预算 (USD)</label>
-          <input class="text-input num" id="b-g7" type="number" step="10" value="${b.gemini7dUsd ?? 400}" />
+          <label>Gemini 7天 手动预算 (USD)</label>
+          <input class="text-input num" id="b-g7" type="number" step="10" value="${b.gemini7dUsd ?? 580}" />
         </div>
         <div class="field">
-          <label>Claude 5h 参考预算 (USD)</label>
-          <input class="text-input num" id="b-c5" type="number" step="5" value="${b.claude5hUsd ?? 30}" />
+          <label>Claude &amp; GPT 5h 手动预算 (USD)</label>
+          <input class="text-input num" id="b-c5" type="number" step="5" value="${b.claude5hUsd ?? 15}" />
         </div>
         <div class="field">
-          <label>Claude 7天 参考预算 (USD)</label>
-          <input class="text-input num" id="b-c7" type="number" step="10" value="${b.claude7dUsd ?? 150}" />
+          <label>Claude &amp; GPT 7天 手动预算 (USD)</label>
+          <input class="text-input num" id="b-c7" type="number" step="5" value="${b.claude7dUsd ?? 30}" />
         </div>
       </div>
     </div>
@@ -1937,7 +2007,7 @@ function render(opts = {}) {
   else if (state.tab === "pricing") bodyHtml = renderPricingTab(snap);
   else if (state.tab === "settings") bodyHtml = renderSettingsTab(snap);
 
-  const isListLocked = ["tasks", "requests", "errors", "pricing"].includes(state.tab);
+  const isListLocked = ["tasks", "requests", "errors"].includes(state.tab);
 
   let subHeaderHtml = "";
   if (state.tab === "monitor") {
@@ -2169,6 +2239,37 @@ function initEvents() {
     } else if (action === "heat-metric") {
       state.heatmapMetric = val;
       render({ animate: false });
+    } else if (action === "quota-scope") {
+      state.quotaScope = val;
+      render({ animate: false });
+    } else if (action === "save-anchors") {
+      const now = Date.now();
+      const buildAnchor = (pctId, dId, hId, mId) => {
+        const pct = Number(document.getElementById(pctId)?.value);
+        if (!Number.isFinite(pct) || pct < 0 || pct > 100) return null;
+        const d = dId ? Number(document.getElementById(dId)?.value || 0) : 0;
+        const h = hId ? Number(document.getElementById(hId)?.value || 0) : 0;
+        const m = mId ? Number(document.getElementById(mId)?.value || 0) : 0;
+        const ms = ((d * 24 + h) * 60 + m) * 60000;
+        if (ms <= 0) return null;
+        return { remainingPct: pct, resetsAtMs: now + ms, observedAtMs: now };
+      };
+      await saveSettings(
+        {
+          quotaAnchors: {
+            gemini7d: buildAnchor("cal-g7-pct", "cal-g7-d", "cal-g7-h", null),
+            gemini5h: buildAnchor("cal-g5-pct", null, "cal-g5-h", "cal-g5-m"),
+            claude7d: buildAnchor("cal-c7-pct", "cal-c7-d", "cal-c7-h", null),
+            claude5h: buildAnchor("cal-c5-pct", null, "cal-c5-h", "cal-c5-m"),
+          },
+        },
+        "已同步双池官方校准锚点并重新反推额度"
+      );
+    } else if (action === "clear-anchors") {
+      await saveSettings(
+        { quotaAnchors: { gemini5h: null, gemini7d: null, claude5h: null, claude7d: null } },
+        "已清除手动校准，恢复日志自动推算"
+      );
     } else if (action === "sort-model") {
       if (state.modelSort.key === val) {
         state.modelSort.dir = state.modelSort.dir === "desc" ? "asc" : "desc";
@@ -2254,10 +2355,10 @@ function initEvents() {
         currency: document.getElementById("cfg-currency")?.value || "dual",
         pollIntervalMs: Number(document.getElementById("cfg-poll")?.value ?? 2500),
         budgets: {
-          gemini5hUsd: Number(document.getElementById("b-g5")?.value) || 80,
-          gemini7dUsd: Number(document.getElementById("b-g7")?.value) || 400,
-          claude5hUsd: Number(document.getElementById("b-c5")?.value) || 30,
-          claude7dUsd: Number(document.getElementById("b-c7")?.value) || 150,
+          gemini5hUsd: Number(document.getElementById("b-g5")?.value) || 135,
+          gemini7dUsd: Number(document.getElementById("b-g7")?.value) || 580,
+          claude5hUsd: Number(document.getElementById("b-c5")?.value) || 15,
+          claude7dUsd: Number(document.getElementById("b-c7")?.value) || 30,
         },
       });
     } else if (action === "rebuild-cache") {

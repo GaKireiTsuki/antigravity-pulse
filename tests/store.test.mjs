@@ -192,7 +192,84 @@ test("auto quota inference derives 5h pool from [quota] anchor, resets after bou
     assert.ok(snap.rollingWindows.gemini5h.remainingPct > 97);
     // Cycle quota auto-derived from inferred weekly quota
     assert.equal(snap.subscription.cycleQuotaSource, "anchor");
-    assert.ok(snap.subscription.cycleQuotaUsd > 2000);
+    assert.ok(snap.subscription.cycleQuotaUsd > 1000);
+    // Strict pool isolation: Gemini models stay in gemini pool, Claude/GPT stay in claude pool
+    assert.ok(snap.quotaPools.gemini.modelEstimates.every((m) => m.pool === "gemini"));
+    assert.ok(snap.quotaPools.claude.modelEstimates.every((m) => m.pool === "claude"));
+    // Gemini spend must NOT affect Claude & GPT pool remaining
+    assert.equal(snap.quotaPools.claude.win5h.costUsd, 0);
+    assert.equal(snap.quotaPools.claude.win5h.remainingPct, 100);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("View Usage manual calibration anchors infer independent Gemini and Claude/GPT pools and deduct post-anchor usage", () => {
+  const { tmp, agyDir, dataDir } = makeTempEnv();
+  try {
+    const cid = "33333333-3333-3333-3333-333333333333";
+    const now = Date.now();
+    const obsMs = now - 10 * 60 * 1000;
+    const beforeObs = obsMs - 30 * 60 * 1000;
+    const afterObs = now - 2 * 60 * 1000;
+
+    // Before calibration:
+    //   Gemini 4 Neon ($3/M in): 100M input = $300 -> calibrated at 50% left => inferred weekly cap = $600
+    //   Claude Opus 5.5 ($4/M * 1.25 cache write = $5/M in): 3M input = $15 -> calibrated at 50% left => inferred weekly cap = $30
+    // After calibration:
+    //   Claude Opus 5.5: 0.6M input = $3 -> should deduct 10% (50% -> 40%) from Claude pool ONLY, Gemini stays 50%!
+    writeTranscript(agyDir, cid, [
+      {
+        step_index: 1,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        model: "gemini-4-neon-xhigh",
+        input_tokens: 100_000_000,
+        cache_read_tokens: 0,
+        output_tokens: 0,
+        created_at: new Date(beforeObs).toISOString(),
+      },
+      {
+        step_index: 2,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        model: "claude-opus-5-5-high",
+        input_tokens: 3_000_000,
+        cache_read_tokens: 0,
+        output_tokens: 0,
+        created_at: new Date(beforeObs + 1000).toISOString(),
+      },
+      {
+        step_index: 3,
+        type: "PLANNER_RESPONSE",
+        status: "DONE",
+        model: "claude-opus-5-5-high",
+        input_tokens: 600_000,
+        cache_read_tokens: 0,
+        output_tokens: 0,
+        created_at: new Date(afterObs).toISOString(),
+      },
+    ]);
+
+    const store = new PulseStore({ antigravityDir: agyDir, dataDir });
+    store.saveSettings({
+      quotaAnchors: {
+        gemini7d: { remainingPct: 50, resetsAtMs: obsMs + 6 * 86400000, observedAtMs: obsMs },
+        claude7d: { remainingPct: 50, resetsAtMs: obsMs + 6 * 86400000, observedAtMs: obsMs },
+      },
+    });
+
+    const snap = store.getOverviewSnapshot({ range: "all" });
+    assert.equal(snap.quotaPools.gemini.win7d.source, "calibrated");
+    assert.equal(snap.quotaPools.gemini.win7d.budgetUsd, 600);
+    assert.equal(snap.quotaPools.gemini.win7d.remainingPct, 50);
+    assert.equal(snap.quotaPools.gemini.win7d.remainingUsd, 300);
+
+    assert.equal(snap.quotaPools.claude.win7d.source, "calibrated");
+    assert.equal(snap.quotaPools.claude.win7d.budgetUsd, 30);
+    assert.equal(snap.quotaPools.claude.win7d.remainingPct, 40);
+    assert.equal(snap.quotaPools.claude.win7d.remainingUsd, 12);
+    assert.equal(snap.quotaPools.claude.win7d.exceededUsd, 0);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
