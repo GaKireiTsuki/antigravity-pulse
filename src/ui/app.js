@@ -78,46 +78,154 @@ function fmtCharsZh(chars) {
   return `${c.toLocaleString("zh-CN")} 字`;
 }
 
+const BOOK_TIERS = [
+  {
+    min: 600_000_000,
+    books: [
+      { culture: "中国", size: 800_000_000, unit: "部", name: "《四库全书》" },
+      { culture: "全球", size: 1_000_000_000, unit: "座", name: "《中文维基百科》" },
+      { culture: "英国", size: 80_000_000, unit: "套", name: "《大英百科全书》" },
+      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
+      { culture: "阿拉伯", size: 1_600_000, unit: "部", name: "《一千零一夜》" },
+      { culture: "日本", size: 1_050_000, unit: "部", name: "《源氏物语》" },
+      { culture: "俄国", size: 1_200_000, unit: "部", name: "《战争与和平》" },
+      { culture: "欧美", size: 2_100_000, unit: "套", name: "《哈利·波特》全集" },
+    ],
+  },
+  {
+    min: 200_000_000,
+    books: [
+      { culture: "中国", size: 370_000_000, unit: "部", name: "《永乐大典》" },
+      { culture: "英国", size: 80_000_000, unit: "套", name: "《大英百科全书》" },
+      { culture: "东亚", size: 100_000_000, unit: "套", name: "《大正新修大藏经》" },
+      { culture: "法国", size: 24_000_000, unit: "套", name: "《人间喜剧》全集" },
+      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
+      { culture: "阿拉伯", size: 1_600_000, unit: "部", name: "《一千零一夜》" },
+    ],
+  },
+  {
+    min: 32_000_000,
+    books: [
+      { culture: "中国", size: 40_000_000, unit: "套", name: "《二十四史》" },
+      { culture: "英国", size: 80_000_000, unit: "套", name: "《大英百科全书》" },
+      { culture: "法国", size: 24_000_000, unit: "套", name: "《人间喜剧》全集" },
+      { culture: "日本", size: 11_000_000, unit: "套", name: "《德川家康》全集" },
+      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
+      { culture: "欧美", size: 2_100_000, unit: "套", name: "《哈利·波特》全集" },
+    ],
+  },
+  {
+    min: 8_000_000,
+    books: [
+      { culture: "华语", size: 11_000_000, unit: "套", name: "《金庸全集》" },
+      { culture: "日本", size: 11_000_000, unit: "套", name: "《德川家康》全集" },
+      { culture: "法国", size: 24_000_000, unit: "套", name: "《人间喜剧》全集" },
+      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
+      { culture: "欧美", size: 2_100_000, unit: "套", name: "《哈利·波特》全集" },
+      { culture: "阿拉伯", size: 1_600_000, unit: "部", name: "《一千零一夜》" },
+    ],
+  },
+  {
+    min: 2_200_000,
+    books: [
+      { culture: "中国", size: 3_150_000, unit: "套", name: "《四大名著》" },
+      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
+      { culture: "欧美", size: 3_600_000, unit: "套", name: "《冰与火之歌》" },
+      { culture: "英国", size: 2_600_000, unit: "套", name: "《莎士比亚全集》" },
+      { culture: "法国", size: 2_400_000, unit: "部", name: "《追忆似水年华》" },
+      { culture: "英国", size: 2_100_000, unit: "套", name: "《哈利·波特》全集" },
+    ],
+  },
+  {
+    min: 600_000,
+    books: [
+      { culture: "中国", size: 880_000, unit: "套", name: "《三体》全集" },
+      { culture: "日本", size: 1_050_000, unit: "部", name: "《源氏物语》" },
+      { culture: "英国", size: 1_000_000, unit: "套", name: "《魔戒》全三部曲" },
+      { culture: "俄国", size: 1_200_000, unit: "部", name: "《战争与和平》" },
+      { culture: "阿拉伯", size: 1_600_000, unit: "部", name: "《一千零一夜》" },
+      { culture: "西班牙", size: 800_000, unit: "部", name: "《堂吉诃德》" },
+      { culture: "法国", size: 1_100_000, unit: "部", name: "《悲惨世界》" },
+    ],
+  },
+  {
+    min: 140_000,
+    books: [
+      { culture: "中国", size: 200_000, unit: "本", name: "《三体Ⅰ》" },
+      { culture: "拉美", size: 260_000, unit: "本", name: "《百年孤独》" },
+      { culture: "日本", size: 260_000, unit: "本", name: "《挪威的森林》" },
+      { culture: "英国", size: 250_000, unit: "本", name: "《傲慢与偏见》" },
+      { culture: "古希腊", size: 450_000, unit: "部", name: "《荷马史诗》" },
+      { culture: "俄国", size: 420_000, unit: "部", name: "《罪与罚》" },
+      { culture: "英国", size: 200_000, unit: "本", name: "《1984》" },
+    ],
+  },
+  {
+    min: 20_000,
+    books: [
+      { culture: "法国", size: 30_000, unit: "本", name: "《小王子》" },
+      { culture: "日本", size: 55_000, unit: "本", name: "《人间失格》" },
+      { culture: "美国", size: 35_000, unit: "本", name: "《老人与海》" },
+      { culture: "中国", size: 65_000, unit: "本", name: "《边城》" },
+      { culture: "英国", size: 45_000, unit: "部", name: "《哈姆雷特》" },
+      { culture: "捷克", size: 28_000, unit: "本", name: "《变形记》" },
+    ],
+  },
+  {
+    min: 2_500,
+    books: [
+      { culture: "中国", size: 3_000, unit: "篇", name: "《孔乙己》" },
+      { culture: "日本", size: 5_500, unit: "篇", name: "《罗生门》" },
+      { culture: "俄国", size: 18_000, unit: "篇", name: "《外套》" },
+      { culture: "法国", size: 4_500, unit: "篇", name: "《项链》" },
+      { culture: "美国", size: 3_500, unit: "篇", name: "《麦琪的礼物》" },
+    ],
+  },
+  {
+    min: 400,
+    books: [
+      { culture: "中国", size: 620, unit: "篇", name: "《出师表》" },
+      { culture: "古希腊", size: 1_000, unit: "辑", name: "《伊索寓言》精选" },
+      { culture: "印度", size: 1_200, unit: "辑", name: "《飞鸟集》节选" },
+      { culture: "日本", size: 1_000, unit: "篇", name: "《枕草子》节选" },
+    ],
+  },
+];
+
+function fmtBookRatio(chars, book) {
+  const ratio = chars / book.size;
+  const ratioStr =
+    ratio >= 100
+      ? Math.round(ratio).toLocaleString("zh-CN")
+      : ratio >= 10
+        ? ratio.toFixed(0)
+        : ratio.toFixed(1);
+  return `${ratioStr} ${book.unit}${book.name}`;
+}
+
 /**
- * Convert raw token count into relatable Chinese literary / reading milestones
- * plus estimated equivalent character count (~0.75 Chinese/mixed chars per token).
+ * Convert raw token count into relatable cross-cultural literary milestones
+ * plus estimated equivalent character count (~0.75 mixed chars per token).
+ * Users can click the readout to cycle across cultural traditions.
  */
-function describeTokenScale(tokens) {
+function describeTokenScale(tokens, pickOffset = 0) {
   const t = Number(tokens || 0);
   if (t <= 0) return null;
   const chars = Math.round(t * 0.75);
   const charsText = fmtCharsZh(chars);
 
-  const milestones = [
-    { min: 600_000_000, size: 800_000_000, unit: "部", name: "《四库全书》" },
-    { min: 260_000_000, size: 370_000_000, unit: "部", name: "《永乐大典》" },
-    { min: 32_000_000, size: 40_000_000, unit: "套", name: "《二十四史》" },
-    { min: 9_000_000, size: 11_000_000, unit: "套", name: "《金庸全集》" },
-    { min: 2_500_000, size: 3_150_000, unit: "套", name: "《四大名著》" },
-    { min: 650_000, size: 880_000, unit: "套", name: "《三体》全集" },
-    { min: 150_000, size: 200_000, unit: "本", name: "《三体Ⅰ》" },
-    { min: 22_000, size: 30_000, unit: "本", name: "《小王子》" },
-    { min: 2_500, size: 3_000, unit: "篇", name: "《孔乙己》" },
-    { min: 400, size: 620, unit: "篇", name: "《出师表》" },
-  ];
-
+  const tier = BOOK_TIERS.find((tr) => chars >= tr.min) || null;
   let headline = "一篇短文";
-  for (const m of milestones) {
-    if (chars >= m.min) {
-      const ratio = chars / m.size;
-      const ratioStr = ratio >= 100 ? Math.round(ratio).toLocaleString("zh-CN") : ratio >= 10 ? ratio.toFixed(0) : ratio.toFixed(1);
-      headline = `${ratioStr} ${m.unit}${m.name}`;
-      break;
-    }
-  }
+  let culture = "";
+  let crossCulturalLines = [];
 
-  // Build fun multi-landmark hover tooltip
-  const refs = [];
-  if (chars >= 100_000_000) refs.push(`${(chars / 800_000_000).toFixed(2)} 部《四库全书》`);
-  if (chars >= 50_000_000) refs.push(`${(chars / 370_000_000).toFixed(1)} 部《永乐大典》`);
-  if (chars >= 2_000_000) refs.push(`${Math.round(chars / 3_150_000).toLocaleString("zh-CN")} 套《四大名著》`);
-  if (chars >= 400_000) refs.push(`${(chars / 880_000 >= 10 ? Math.round(chars / 880_000).toLocaleString("zh-CN") : (chars / 880_000).toFixed(1))} 套《三体》全集`);
-  if (chars < 400_000 && chars >= 10_000) refs.push(`${(chars / 30_000).toFixed(1)} 本《小王子》`);
+  if (tier) {
+    const idx = ((pickOffset % tier.books.length) + tier.books.length) % tier.books.length;
+    const chosen = tier.books[idx];
+    headline = fmtBookRatio(chars, chosen);
+    culture = chosen.culture;
+    crossCulturalLines = tier.books.slice(0, 6).map((b) => `${b.culture}：${fmtBookRatio(chars, b)}`);
+  }
 
   // Double-sided A4 print reference (~2,400 chars/sheet, 0.1mm/sheet)
   const sheets = Math.max(1, Math.round(chars / 2400));
@@ -128,10 +236,10 @@ function describeTokenScale(tokens) {
       : `双面 A4 纸约 ${sheets.toLocaleString("zh-CN")} 张（厚约 ${(heightM * 100).toFixed(1)} 厘米）`;
 
   const tip = esc(
-    `<strong>体量换算（按 1 Token ≈ 0.75 字）</strong><br/>折合字数：<strong>约 ${charsText}</strong><br/>相当于：${headline}${refs.length ? `<br/>${refs.join(" · ")}` : ""}<br/><span style="color:var(--fg-muted)">${printStr}</span>`
+    `<strong>跨文化体量换算（按 1 Token ≈ 0.75 字）</strong><br/>折合字数：<strong>约 ${charsText}</strong>${crossCulturalLines.length ? `<br/>${crossCulturalLines.join("<br/>")}` : ""}<br/><span style="color:var(--fg-muted)">${printStr} · 点击可切换参照书目</span>`
   );
 
-  return { chars, charsText, headline, tip };
+  return { chars, charsText, headline, culture, tip };
 }
 
 function fmtCtx(n, settings = null) {
@@ -266,6 +374,7 @@ const state = {
   modelFilter: "all",
   selectedCid: null,
   quotaScope: "weekly", // "weekly" | "5h" | "cycle"
+  equivIndex: 0,
   heatmapMetric: "tokens",
   heatmapPinnedRight: true,
   heatmapScrollLeft: null,
@@ -966,7 +1075,7 @@ function renderMonitorContent(snap, compactMode) {
       )
       .join("");
 
-    const ctxEquiv = describeTokenScale(ctx.contextTokens);
+    const ctxEquiv = describeTokenScale(ctx.contextTokens, state.equivIndex);
     const pctBadgeCls = ctx.usagePercent >= 85 ? "err" : ctx.usagePercent >= 65 ? "warn" : "info";
     ctxCardHtml = `
       <div class="card">
@@ -984,8 +1093,8 @@ function renderMonitorContent(snap, compactMode) {
         <div class="ctx-list">${catItems}</div>
         ${
           ctxEquiv
-            ? `<div class="ctx-equiv" data-tip="${ctxEquiv.tip}">
-                <span style="display:inline-flex;align-items:center;gap:5px">${icon("bookOpen", "sm muted")}<span>本会话上下文相当于 <strong>${esc(ctxEquiv.headline)}</strong></span></span>
+            ? `<div class="ctx-equiv" data-action="cycle-equiv" data-tokens="${ctx.contextTokens}" data-equiv-mode="ctx" data-tip="${ctxEquiv.tip}">
+                <span style="display:inline-flex;align-items:center;gap:5px">${icon("bookOpen", "sm muted")}<span>本会话上下文相当于 <strong data-equiv-headline>${esc(ctxEquiv.headline)}</strong></span></span>
                 <span class="num" style="font-size:10.5px;color:var(--fg-muted)">约 ${esc(ctxEquiv.charsText)}</span>
               </div>`
             : ""
@@ -1124,11 +1233,11 @@ function renderOverviewTab(snap) {
             <span class="${hitClass(k.cacheHitRate)}">命中 ${k.cacheHitRate}%</span>
           </div>
           ${(() => {
-            const eq = describeTokenScale(k.totalTokens);
+            const eq = describeTokenScale(k.totalTokens, state.equivIndex);
             return eq
-              ? `<div class="kpi-equiv" data-tip="${eq.tip}">
+              ? `<div class="kpi-equiv" data-action="cycle-equiv" data-tokens="${k.totalTokens}" data-equiv-mode="kpi" data-tip="${eq.tip}">
                   ${icon("bookOpen", "sm")}
-                  <span>相当于 <strong>${esc(eq.headline)}</strong></span>
+                  <span>相当于 <strong data-equiv-headline>${esc(eq.headline)}</strong></span>
                   <span class="kpi-equiv-sub num">约 ${esc(eq.charsText)}</span>
                 </div>`
               : "";
@@ -2371,7 +2480,7 @@ function buildMarkdownReport(snap) {
   const k = snap.kpi;
   const s = snap.settings;
   const sub = snap.subscription;
-  const tokEq = describeTokenScale(k.totalTokens);
+  const tokEq = describeTokenScale(k.totalTokens, state.equivIndex);
   const lines = [
     `# Antigravity Pulse 用量报告 (${snap.range})`,
     ``,
@@ -2518,6 +2627,15 @@ function initEvents() {
       if (state.heatmapMetric === val) return;
       state.heatmapMetric = val;
       updateHeatmapInPlace(val);
+    } else if (action === "cycle-equiv") {
+      state.equivIndex = (state.equivIndex + 1) % 1000;
+      document.querySelectorAll('[data-action="cycle-equiv"]').forEach((box) => {
+        const toks = Number(box.getAttribute("data-tokens") || 0);
+        const eq = describeTokenScale(toks, state.equivIndex);
+        if (!eq) return;
+        const hl = box.querySelector("[data-equiv-headline]");
+        if (hl) hl.textContent = eq.headline;
+      });
     } else if (action === "quota-scope") {
       state.quotaScope = val;
       render({ animate: false });
