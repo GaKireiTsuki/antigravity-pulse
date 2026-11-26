@@ -78,107 +78,159 @@ function fmtCharsZh(chars) {
   return `${c.toLocaleString("zh-CN")} 字`;
 }
 
+// Ascending world-civilization literary ladder: each usage magnitude defaults to
+// an iconic work from a different cultural tradition, with click-to-cycle peers.
 const BOOK_TIERS = [
   {
-    min: 600_000_000,
+    min: 2_500_000_000,
+    books: [
+      { culture: "全球", size: 4_500_000_000, unit: "座", name: "《英文维基百科》" },
+      { culture: "中国", size: 800_000_000, unit: "部", name: "《四库全书》" },
+      { culture: "英国", size: 80_000_000, unit: "套", name: "《大英百科全书》" },
+      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
+    ],
+  },
+  {
+    min: 950_000_000,
+    books: [
+      { culture: "全球", size: 1_000_000_000, unit: "座", name: "《中文维基百科》" },
+      { culture: "中国", size: 800_000_000, unit: "部", name: "《四库全书》" },
+      { culture: "英国", size: 80_000_000, unit: "套", name: "《大英百科全书》" },
+      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
+      { culture: "阿拉伯", size: 1_600_000, unit: "部", name: "《一千零一夜》" },
+      { culture: "日本", size: 1_050_000, unit: "部", name: "《源氏物语》" },
+    ],
+  },
+  {
+    min: 550_000_000,
     books: [
       { culture: "中国", size: 800_000_000, unit: "部", name: "《四库全书》" },
       { culture: "全球", size: 1_000_000_000, unit: "座", name: "《中文维基百科》" },
       { culture: "英国", size: 80_000_000, unit: "套", name: "《大英百科全书》" },
       { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
-      { culture: "阿拉伯", size: 1_600_000, unit: "部", name: "《一千零一夜》" },
-      { culture: "日本", size: 1_050_000, unit: "部", name: "《源氏物语》" },
       { culture: "俄国", size: 1_200_000, unit: "部", name: "《战争与和平》" },
-      { culture: "欧美", size: 2_100_000, unit: "套", name: "《哈利·波特》全集" },
     ],
   },
   {
-    min: 200_000_000,
+    min: 220_000_000,
     books: [
       { culture: "中国", size: 370_000_000, unit: "部", name: "《永乐大典》" },
       { culture: "英国", size: 80_000_000, unit: "套", name: "《大英百科全书》" },
       { culture: "东亚", size: 100_000_000, unit: "套", name: "《大正新修大藏经》" },
       { culture: "法国", size: 24_000_000, unit: "套", name: "《人间喜剧》全集" },
       { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
-      { culture: "阿拉伯", size: 1_600_000, unit: "部", name: "《一千零一夜》" },
     ],
   },
   {
-    min: 32_000_000,
+    min: 55_000_000,
     books: [
-      { culture: "中国", size: 40_000_000, unit: "套", name: "《二十四史》" },
       { culture: "英国", size: 80_000_000, unit: "套", name: "《大英百科全书》" },
+      { culture: "东亚", size: 100_000_000, unit: "套", name: "《大正新修大藏经》" },
+      { culture: "中国", size: 40_000_000, unit: "套", name: "《二十四史》" },
       { culture: "法国", size: 24_000_000, unit: "套", name: "《人间喜剧》全集" },
       { culture: "日本", size: 11_000_000, unit: "套", name: "《德川家康》全集" },
-      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
-      { culture: "欧美", size: 2_100_000, unit: "套", name: "《哈利·波特》全集" },
     ],
   },
   {
-    min: 8_000_000,
+    min: 20_000_000,
     books: [
+      { culture: "法国", size: 24_000_000, unit: "套", name: "《人间喜剧》全集" },
+      { culture: "中国", size: 40_000_000, unit: "套", name: "《二十四史》" },
+      { culture: "日本", size: 11_000_000, unit: "套", name: "《德川家康》全集" },
       { culture: "华语", size: 11_000_000, unit: "套", name: "《金庸全集》" },
-      { culture: "日本", size: 11_000_000, unit: "套", name: "《德川家康》全集" },
-      { culture: "法国", size: 24_000_000, unit: "套", name: "《人间喜剧》全集" },
       { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
-      { culture: "欧美", size: 2_100_000, unit: "套", name: "《哈利·波特》全集" },
-      { culture: "阿拉伯", size: 1_600_000, unit: "部", name: "《一千零一夜》" },
     ],
   },
   {
-    min: 2_200_000,
+    min: 8_500_000,
     books: [
-      { culture: "中国", size: 3_150_000, unit: "套", name: "《四大名著》" },
+      { culture: "日本", size: 11_000_000, unit: "套", name: "《德川家康》全集" },
+      { culture: "华语", size: 11_000_000, unit: "套", name: "《金庸全集》" },
+      { culture: "法国", size: 24_000_000, unit: "套", name: "《人间喜剧》全集" },
       { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
-      { culture: "欧美", size: 3_600_000, unit: "套", name: "《冰与火之歌》" },
-      { culture: "英国", size: 2_600_000, unit: "套", name: "《莎士比亚全集》" },
-      { culture: "法国", size: 2_400_000, unit: "部", name: "《追忆似水年华》" },
       { culture: "英国", size: 2_100_000, unit: "套", name: "《哈利·波特》全集" },
     ],
   },
   {
-    min: 600_000,
+    min: 3_200_000,
     books: [
-      { culture: "中国", size: 880_000, unit: "套", name: "《三体》全集" },
+      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
+      { culture: "中国", size: 3_150_000, unit: "套", name: "《四大名著》" },
+      { culture: "欧美", size: 3_600_000, unit: "套", name: "《冰与火之歌》" },
+      { culture: "英国", size: 2_600_000, unit: "套", name: "《莎士比亚全集》" },
+      { culture: "法国", size: 2_400_000, unit: "部", name: "《追忆似水年华》" },
+    ],
+  },
+  {
+    min: 1_500_000,
+    books: [
+      { culture: "阿拉伯", size: 1_600_000, unit: "部", name: "《一千零一夜》" },
+      { culture: "英国", size: 2_100_000, unit: "套", name: "《哈利·波特》全集" },
+      { culture: "法国", size: 2_400_000, unit: "部", name: "《追忆似水年华》" },
+      { culture: "中国", size: 3_150_000, unit: "套", name: "《四大名著》" },
+      { culture: "俄国", size: 1_200_000, unit: "部", name: "《战争与和平》" },
+    ],
+  },
+  {
+    min: 850_000,
+    books: [
+      { culture: "俄国", size: 1_200_000, unit: "部", name: "《战争与和平》" },
       { culture: "日本", size: 1_050_000, unit: "部", name: "《源氏物语》" },
       { culture: "英国", size: 1_000_000, unit: "套", name: "《魔戒》全三部曲" },
-      { culture: "俄国", size: 1_200_000, unit: "部", name: "《战争与和平》" },
-      { culture: "阿拉伯", size: 1_600_000, unit: "部", name: "《一千零一夜》" },
+      { culture: "中国", size: 880_000, unit: "套", name: "《三体》全集" },
       { culture: "西班牙", size: 800_000, unit: "部", name: "《堂吉诃德》" },
       { culture: "法国", size: 1_100_000, unit: "部", name: "《悲惨世界》" },
     ],
   },
   {
-    min: 140_000,
+    min: 380_000,
     books: [
-      { culture: "中国", size: 200_000, unit: "本", name: "《三体Ⅰ》" },
+      { culture: "古希腊", size: 450_000, unit: "部", name: "《荷马史诗》" },
+      { culture: "俄国", size: 420_000, unit: "部", name: "《罪与罚》" },
+      { culture: "西班牙", size: 800_000, unit: "部", name: "《堂吉诃德》" },
+      { culture: "中国", size: 880_000, unit: "套", name: "《三体》全集" },
+      { culture: "英国", size: 250_000, unit: "本", name: "《傲慢与偏见》" },
+    ],
+  },
+  {
+    min: 180_000,
+    books: [
       { culture: "拉美", size: 260_000, unit: "本", name: "《百年孤独》" },
       { culture: "日本", size: 260_000, unit: "本", name: "《挪威的森林》" },
       { culture: "英国", size: 250_000, unit: "本", name: "《傲慢与偏见》" },
-      { culture: "古希腊", size: 450_000, unit: "部", name: "《荷马史诗》" },
-      { culture: "俄国", size: 420_000, unit: "部", name: "《罪与罚》" },
+      { culture: "中国", size: 200_000, unit: "本", name: "《三体Ⅰ》" },
       { culture: "英国", size: 200_000, unit: "本", name: "《1984》" },
     ],
   },
   {
-    min: 20_000,
+    min: 80_000,
+    books: [
+      { culture: "美国", size: 140_000, unit: "本", name: "《瓦尔登湖》" },
+      { culture: "中国", size: 130_000, unit: "本", name: "《呼兰河传》" },
+      { culture: "日本", size: 70_000, unit: "本", name: "《雪国》" },
+      { culture: "拉美", size: 260_000, unit: "本", name: "《百年孤独》" },
+      { culture: "英国", size: 200_000, unit: "本", name: "《1984》" },
+    ],
+  },
+  {
+    min: 18_000,
     books: [
       { culture: "法国", size: 30_000, unit: "本", name: "《小王子》" },
       { culture: "日本", size: 55_000, unit: "本", name: "《人间失格》" },
       { culture: "美国", size: 35_000, unit: "本", name: "《老人与海》" },
-      { culture: "中国", size: 65_000, unit: "本", name: "《边城》" },
       { culture: "英国", size: 45_000, unit: "部", name: "《哈姆雷特》" },
       { culture: "捷克", size: 28_000, unit: "本", name: "《变形记》" },
+      { culture: "中国", size: 65_000, unit: "本", name: "《边城》" },
     ],
   },
   {
     min: 2_500,
     books: [
-      { culture: "中国", size: 3_000, unit: "篇", name: "《孔乙己》" },
       { culture: "日本", size: 5_500, unit: "篇", name: "《罗生门》" },
-      { culture: "俄国", size: 18_000, unit: "篇", name: "《外套》" },
+      { culture: "中国", size: 3_000, unit: "篇", name: "《孔乙己》" },
       { culture: "法国", size: 4_500, unit: "篇", name: "《项链》" },
       { culture: "美国", size: 3_500, unit: "篇", name: "《麦琪的礼物》" },
+      { culture: "俄国", size: 18_000, unit: "篇", name: "《外套》" },
     ],
   },
   {
