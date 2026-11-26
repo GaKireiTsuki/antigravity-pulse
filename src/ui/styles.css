@@ -5,7 +5,7 @@
  */
 
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   --bg-page: var(--color-background-primary, #f7f8fa);
   --bg-card: var(--color-background-secondary, #ffffff);
   --bg-elevated: var(--color-background-tertiary, #f1f3f6);
@@ -70,6 +70,64 @@
   --t-slow: 460ms;
 }
 
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg-page: var(--color-background-primary, #111318);
+    --bg-card: var(--color-background-secondary, #171a21);
+    --bg-elevated: var(--color-background-tertiary, #1f232c);
+    --bg-hover: rgba(255, 255, 255, 0.055);
+    --bg-pill: rgba(255, 255, 255, 0.065);
+    --bg-pill-active: #272c38;
+
+    --fg-primary: var(--color-text-primary, #eef1f6);
+    --fg-secondary: var(--color-text-secondary, #9ca6b8);
+    --fg-muted: var(--color-text-tertiary, #6c7689);
+
+    --border-subtle: var(--color-border-secondary, rgba(255, 255, 255, 0.075));
+    --border-strong: var(--color-border-primary, rgba(255, 255, 255, 0.14));
+
+    --accent: #5b9bff;
+    --accent-soft: rgba(91, 155, 255, 0.16);
+    --cyan: #38bdf8;
+    --green: #34d399;
+    --green-soft: rgba(52, 211, 153, 0.14);
+    --amber: #fbbf24;
+    --amber-soft: rgba(251, 191, 36, 0.15);
+    --red: #f87171;
+    --red-soft: rgba(248, 113, 113, 0.15);
+    --purple: #a78bfa;
+
+    --heat-0: #1e222b;
+    --heat-1: #1e3557;
+    --heat-2: #244f8d;
+    --heat-3: #3874cc;
+    --heat-4: #60a5fa;
+
+    --heat-req-1: #2a2346;
+    --heat-req-2: #433279;
+    --heat-req-3: #6c4fc2;
+    --heat-req-4: #a78bfa;
+
+    --heat-cost-1: #14332b;
+    --heat-cost-2: #195844;
+    --heat-cost-3: #228b67;
+    --heat-cost-4: #34d399;
+
+    --slot-ok: #38b865;
+    --slot-warn: #e5a91a;
+    --slot-err: #ef4d56;
+    --slot-empty: #242934;
+
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.22);
+    --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.45);
+  }
+}
+
 :root[data-theme="dark"],
 html.dark,
 body[data-theme="dark"] {
@@ -131,12 +189,16 @@ html, body {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: var(--bg-page);
+  background: transparent;
   color: var(--fg-primary);
   font-family: var(--font-ui);
   font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+}
+html.theme-ready,
+html.theme-ready body {
+  background: var(--bg-page);
 }
 .mono, .num { font-variant-numeric: tabular-nums; }
 .mono { font-family: var(--font-mono); }
@@ -196,7 +258,13 @@ button {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: transparent;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+html.theme-ready .app-shell {
   background: var(--bg-page);
+  opacity: 1;
 }
 
 /* Fixed Non-Scrolling Header Area */

@@ -271,14 +271,16 @@ function initTooltip() {
 // ---------------- Theme Sync ----------------
 
 function applyHostContext(ctx) {
-  if (!ctx) return;
-  if (ctx.theme) {
-    applyDocumentTheme(ctx.theme);
-    document.documentElement.setAttribute("data-theme", ctx.theme);
+  if (ctx) {
+    if (ctx.theme) {
+      applyDocumentTheme(ctx.theme);
+      document.documentElement.setAttribute("data-theme", ctx.theme);
+    }
+    if (ctx.styles?.variables) {
+      applyHostStyleVariables(ctx.styles.variables);
+    }
   }
-  if (ctx.styles?.variables) {
-    applyHostStyleVariables(ctx.styles.variables);
-  }
+  document.documentElement.classList.add("theme-ready");
 }
 
 // ---------------- Server Calls (Single-Flight Safe) ----------------
@@ -2569,9 +2571,15 @@ app.onhostcontextchanged = (ctx) => {
 };
 
 async function start() {
+  // Safety fallback so UI always reveals even if a host omits theme context
+  const themeRevealTimer = setTimeout(() => {
+    document.documentElement.classList.add("theme-ready");
+  }, 220);
+
   try {
     await app.connect();
     state.connected = true;
+    clearTimeout(themeRevealTimer);
     applyHostContext(app.getHostContext());
 
     setTimeout(() => {
@@ -2580,6 +2588,8 @@ async function start() {
       }
     }, 350);
   } catch (err) {
+    clearTimeout(themeRevealTimer);
+    document.documentElement.classList.add("theme-ready");
     const root = document.getElementById("app");
     if (root) {
       root.innerHTML = `<div class="empty-state">无法连接到 Antigravity MCP App 宿主：${esc(err?.message || err)}</div>`;
