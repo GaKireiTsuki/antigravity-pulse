@@ -188,6 +188,9 @@ const state = {
   isNarrow: window.innerWidth < 680,
   lastToastTimer: null,
   connected: false,
+  isRefreshing: false,
+  hasRenderedOnce: false,
+  sliderState: new Map(), // containerKey -> { x, w }
 };
 
 const app = new App({ name: "Antigravity Pulse", version: "1.0.0" }, {});
@@ -198,9 +201,9 @@ function showToast(msg) {
   const el = document.getElementById("toast");
   if (!el) return;
   el.textContent = msg;
-  el.classList.remove("hidden");
+  el.classList.add("is-visible");
   clearTimeout(state.lastToastTimer);
-  state.lastToastTimer = setTimeout(() => el.classList.add("hidden"), 2400);
+  state.lastToastTimer = setTimeout(() => el.classList.remove("is-visible"), 2400);
 }
 
 function initTooltip() {
@@ -209,16 +212,16 @@ function initTooltip() {
   document.addEventListener("mousemove", (ev) => {
     const target = ev.target?.closest?.("[data-tip]");
     if (!target) {
-      tip.classList.add("hidden");
+      tip.classList.remove("is-visible");
       return;
     }
     const raw = target.getAttribute("data-tip");
     if (!raw) {
-      tip.classList.add("hidden");
+      tip.classList.remove("is-visible");
       return;
     }
-    tip.innerHTML = raw;
-    tip.classList.remove("hidden");
+    if (tip.innerHTML !== raw) tip.innerHTML = raw;
+    tip.classList.add("is-visible");
     const pad = 12;
     const rect = tip.getBoundingClientRect();
     let x = ev.clientX + 14;
@@ -232,7 +235,7 @@ function initTooltip() {
     tip.style.left = `${x}px`;
     tip.style.top = `${y}px`;
   });
-  document.addEventListener("mouseleave", () => tip.classList.add("hidden"));
+  document.addEventListener("mouseleave", () => tip.classList.remove("is-visible"));
 }
 
 // ---------------- Theme Sync ----------------
@@ -255,9 +258,13 @@ async function callTool(name, args = {}) {
   return res?.structuredContent ?? null;
 }
 
-async function fetchSnapshot(force = false) {
+async function fetchSnapshot(force = false, animate = false) {
   if (state.pollingInFlight) return;
   state.pollingInFlight = true;
+  if (force) {
+    state.isRefreshing = true;
+    document.querySelector('[data-action="refresh"]')?.classList.add("is-spinning");
+  }
   try {
     const data = await callTool("pulse_get_snapshot", {
       range: state.range,
@@ -270,27 +277,30 @@ async function fetchSnapshot(force = false) {
       updateLiveBadge(data.inflightCount || 0);
       return;
     }
+    const isBackgroundUpdate = !force && state.hasRenderedOnce;
     state.snapshot = data;
     state.revision = data.revision;
     if (!state.selectedCid && data.latestSession?.cid) {
       state.selectedCid = data.latestSession.cid;
     }
     if (!force && (state.tab === "pricing" || state.tab === "settings")) {
-      updateLiveBadge(data.inflightCount || 0);
+      updateLiveBadge(data.inflightCount || 0, true);
       return;
     }
-    render();
-    if (state.tab === "tasks") fetchTasks();
-    if (state.tab === "requests") fetchRequests();
-    if (state.tab === "errors") fetchErrors();
+    render({ animate: animate || !state.hasRenderedOnce, flashUpdate: isBackgroundUpdate });
+    if (state.tab === "tasks") fetchTasks(false);
+    if (state.tab === "requests") fetchRequests(false);
+    if (state.tab === "errors") fetchErrors(false);
   } catch (err) {
     if (force) showToast(`刷新失败: ${err?.message || err}`);
   } finally {
     state.pollingInFlight = false;
+    state.isRefreshing = false;
+    document.querySelector('[data-action="refresh"]')?.classList.remove("is-spinning");
   }
 }
 
-async function fetchTasks() {
+async function fetchTasks(animate = true) {
   try {
     const data = await callTool("pulse_get_tasks", { range: state.range });
     if (data) {
@@ -298,12 +308,12 @@ async function fetchTasks() {
       if (state.expandedRoots.size === 0 && data.roots?.[0]) {
         state.expandedRoots.add(data.roots[0].rootId);
       }
-      render();
+      render({ animate });
     }
   } catch {}
 }
 
-async function fetchRequests() {
+async function fetchRequests(animate = true) {
   try {
     const data = await callTool("pulse_get_requests", {
       range: state.range,
@@ -315,12 +325,12 @@ async function fetchRequests() {
     });
     if (data) {
       state.requestsData = data;
-      render();
+      render({ animate });
     }
   } catch {}
 }
 
-async function fetchErrors() {
+async function fetchErrors(animate = true) {
   try {
     const [errPage, anomPage] = await Promise.all([
       callTool("pulse_get_requests", {
@@ -343,7 +353,7 @@ async function fetchErrors() {
       stopErrors: errPage?.stopErrors || [],
       anomalies: anomPage?.items || [],
     };
-    render();
+    render({ animate });
   } catch {}
 }
 
@@ -354,7 +364,7 @@ async function saveSettings(patch, toastMsg = "设置已保存并重新计算") 
       state.snapshot = res.snapshot;
       state.revision = res.snapshot.revision;
       restartPollTimer();
-      render();
+      render({ animate: false });
     }
     showToast(toastMsg);
   } catch (err) {
@@ -362,7 +372,7 @@ async function saveSettings(patch, toastMsg = "设置已保存并重新计算") 
   }
 }
 
-function updateLiveBadge(inflightCount) {
+function updateLiveBadge(inflightCount, flash = false) {
   const dot = document.querySelector(".brand-dot");
   const chip = document.querySelector(".status-chip");
   if (dot) {
@@ -372,6 +382,11 @@ function updateLiveBadge(inflightCount) {
   if (chip) {
     chip.classList.toggle("running", inflightCount > 0);
     chip.textContent = inflightCount > 0 ? `${inflightCount} 运行中` : "实时就绪";
+    if (flash) {
+      chip.classList.remove("just-updated");
+      void chip.offsetWidth;
+      chip.classList.add("just-updated");
+    }
   }
 }
 
@@ -520,7 +535,7 @@ function renderDonut(models, valueKey, centerVal, centerLabel, settings) {
     <div class="donut-box">
       <svg class="donut-svg" viewBox="0 0 164 164" role="img" aria-label="${esc(centerLabel)}">
         <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--bg-elevated)" stroke-width="19"></circle>
-        ${segs}
+        <g class="donut-ring">${segs}</g>
         <text x="${cx}" y="${cy - 2}" text-anchor="middle" class="donut-center-val num">${esc(centerVal)}</text>
         <text x="${cx}" y="${cy + 15}" text-anchor="middle" class="donut-center-lbl">${esc(centerLabel)}</text>
       </svg>
@@ -834,7 +849,7 @@ function renderOverviewTab(snap) {
     <div class="card">
       <div class="card-head">
         <div class="card-title">用量热力图</div>
-        <div class="seg-switch">
+        <div class="seg-switch" data-slider-key="heatmap-metric">
           <button class="seg-btn ${state.heatmapMetric === "tokens" ? "active" : ""}" data-action="heat-metric" data-val="tokens">Token</button>
           <button class="seg-btn ${state.heatmapMetric === "requests" ? "active" : ""}" data-action="heat-metric" data-val="requests">请求</button>
           <button class="seg-btn ${state.heatmapMetric === "cost" ? "active" : ""}" data-action="heat-metric" data-val="cost">费用</button>
@@ -995,7 +1010,7 @@ function renderTasksTab(snap) {
   const modeSwitch = `
     <div class="card-head">
       <div class="card-title">任务与 Swarm 消耗归并</div>
-      <div class="seg-switch">
+      <div class="seg-switch" data-slider-key="task-mode">
         <button class="seg-btn ${state.taskMode === "roots" ? "active" : ""}" data-action="task-mode" data-val="roots">按主任务 (${data.roots.length})</button>
         <button class="seg-btn ${state.taskMode === "sessions" ? "active" : ""}" data-action="task-mode" data-val="sessions">全部会话 (${data.sessions.length})</button>
       </div>
@@ -1006,38 +1021,41 @@ function renderTasksTab(snap) {
     const cards = data.roots
       .map((r) => {
         const open = state.expandedRoots.has(r.rootId);
-        const childHtml = open
-          ? `<div class="task-children">
-              ${r.children
-                .map(
-                  (c) => `
-                  <div class="child-row">
-                    <div class="task-title-col">
-                      <span class="model-dot" style="background:${c.primaryModelColor}"></span>
-                      ${c.depth > 0 ? icon("subBranch", "sm muted") : icon("sparkles", "sm muted")}
-                      <span style="color:var(--fg-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px" title="${esc(c.displayTitle)}">${esc(c.displayTitle)}</span>
-                      <span class="badge neutral">${esc(c.primaryModel)}</span>
-                      ${c.anomalies > 0 ? `<span class="badge warn">${c.anomalies} 掉缓存</span>` : ""}
+        const childHtml = `
+          <div class="task-collapse">
+            <div class="task-collapse-inner">
+              <div class="task-children">
+                ${r.children
+                  .map(
+                    (c) => `
+                    <div class="child-row">
+                      <div class="task-title-col">
+                        <span class="model-dot" style="background:${c.primaryModelColor}"></span>
+                        ${c.depth > 0 ? icon("subBranch", "sm muted") : icon("sparkles", "sm muted")}
+                        <span style="color:var(--fg-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px" title="${esc(c.displayTitle)}">${esc(c.displayTitle)}</span>
+                        <span class="badge neutral">${esc(c.primaryModel)}</span>
+                        ${c.anomalies > 0 ? `<span class="badge warn">${c.anomalies} 掉缓存</span>` : ""}
+                      </div>
+                      <div class="task-stats num">
+                        <span>${fmtInt(c.steps)} 步</span>
+                        <span>${fmtTokens(c.tokens, 2, s)}</span>
+                        <span class="${hitClass(c.cacheHitRate)}">${c.cacheHitRate}%</span>
+                        <strong>${esc(fmtCost(c.costUsd, s))}</strong>
+                        <button class="btn sm" data-action="inspect-context" data-val="${esc(c.cid)}">上下文</button>
+                      </div>
                     </div>
-                    <div class="task-stats num">
-                      <span>${fmtInt(c.steps)} 步</span>
-                      <span>${fmtTokens(c.tokens, 2, s)}</span>
-                      <span class="${hitClass(c.cacheHitRate)}">${c.cacheHitRate}%</span>
-                      <strong>${esc(fmtCost(c.costUsd, s))}</strong>
-                      <button class="btn sm" data-action="inspect-context" data-val="${esc(c.cid)}">上下文</button>
-                    </div>
-                  </div>
-                `
-                )
-                .join("")}
-            </div>`
-          : "";
+                  `
+                  )
+                  .join("")}
+              </div>
+            </div>
+          </div>`;
 
         return `
-          <div class="task-card">
+          <div class="task-card ${open ? "is-open" : ""}" data-root-card="${esc(r.rootId)}">
             <div class="task-header" data-action="toggle-root" data-val="${esc(r.rootId)}">
               <div class="task-title-col">
-                ${icon(open ? "chevronDown" : "chevronRight", "sm muted")}
+                ${icon("chevronRight", "sm muted task-chevron")}
                 <span class="task-title" title="${esc(r.title)}">${esc(r.title)}</span>
                 ${r.sessionCount > 1 ? `<span class="badge info num">${r.sessionCount} 会话</span>` : ""}
                 <span style="font-size:11px;color:var(--fg-muted)">${fmtTimeShort(r.firstTs)} ~ ${fmtTimeShort(r.lastTs)}</span>
@@ -1108,7 +1126,7 @@ function renderRequestsTab(snap) {
 
   const toolbar = `
     <div class="filter-bar" style="margin-bottom:10px">
-      <div class="seg-switch">
+      <div class="seg-switch" data-slider-key="req-filter">
         <button class="seg-btn ${q.filter === "all" ? "active" : ""}" data-action="req-filter" data-val="all">全部</button>
         <button class="seg-btn ${q.filter === "anomaly" ? "active" : ""}" data-action="req-filter" data-val="anomaly">短间隔掉缓存</button>
         <button class="seg-btn ${q.filter === "checkpoint" ? "active" : ""}" data-action="req-filter" data-val="checkpoint">压缩</button>
@@ -1443,11 +1461,50 @@ function bindHeatmapScrollAndPin() {
   );
 }
 
-function render() {
+function animatePillSliders() {
+  document.querySelectorAll("[data-slider-key]").forEach((container) => {
+    const key = container.getAttribute("data-slider-key");
+    const activeEl = container.querySelector(".active");
+    if (!activeEl) return;
+
+    const isNav = container.classList.contains("nav-pills");
+    const slider = document.createElement("span");
+    slider.className = isNav ? "nav-slider" : "seg-slider";
+    container.classList.add("has-slider");
+    container.prepend(slider);
+
+    const targetX = activeEl.offsetLeft;
+    const targetW = activeEl.offsetWidth;
+    const prev = state.sliderState.get(key);
+
+    if (prev && (prev.x !== targetX || prev.w !== targetW)) {
+      slider.style.transition = "none";
+      slider.style.width = `${prev.w}px`;
+      slider.style.transform = `translateX(${prev.x}px)`;
+      void slider.offsetWidth;
+      slider.style.transition = "";
+      requestAnimationFrame(() => {
+        slider.style.width = `${targetW}px`;
+        slider.style.transform = `translateX(${targetX}px)`;
+      });
+    } else {
+      slider.style.transition = "none";
+      slider.style.width = `${targetW}px`;
+      slider.style.transform = `translateX(${targetX}px)`;
+    }
+    state.sliderState.set(key, { x: targetX, w: targetW });
+  });
+}
+
+function render(opts = {}) {
+  const { animate = false, flashUpdate = false } = opts;
   const root = document.getElementById("app");
   if (!root) return;
   const snap = state.snapshot;
   if (!snap) return;
+
+  const shouldAnimate = animate || !state.hasRenderedOnce;
+  state.hasRenderedOnce = true;
 
   // Preserve current vertical scroll position of main pane across live updates
   const prevMain = document.getElementById("main-scroll");
@@ -1463,6 +1520,8 @@ function render() {
   const inflightCount = snap.inflightCount || 0;
   const unitLabel = getUnitFormat(s) === "zh" ? "万/亿" : "K/M";
   const curLabel = s.currency === "dual" ? "$/¥" : s.currency === "cny" ? "¥" : "$";
+  const enterCls = shouldAnimate ? "is-entering" : "";
+  const flashCls = flashUpdate ? "just-updated" : "";
 
   if (compactMode) {
     root.innerHTML = `
@@ -1472,20 +1531,20 @@ function render() {
             <div class="brand">
               <span class="brand-dot ${state.liveEnabled ? "live" : "idle"}"></span>
               <span class="brand-title">Pulse</span>
-              <span class="status-chip ${inflightCount > 0 ? "running" : ""}">${inflightCount > 0 ? `${inflightCount} 运行中` : "实时就绪"}</span>
+              <span class="status-chip ${inflightCount > 0 ? "running" : ""} ${flashCls}">${inflightCount > 0 ? `${inflightCount} 运行中` : "实时就绪"}</span>
             </div>
             <div class="topbar-actions">
               <button class="icon-btn" data-action="toggle-unit" title="切换中文/英文计量单位">${unitLabel}</button>
               <button class="icon-btn" data-action="cycle-currency" title="切换币种">${curLabel}</button>
               <button class="icon-btn ${state.liveEnabled ? "active" : ""}" data-action="toggle-live" title="切换实时自动刷新">${state.liveEnabled ? "实时" : "暂停"}</button>
-              <button class="icon-btn square" data-action="refresh" title="立即刷新">${icon("refresh", "sm")}</button>
+              <button class="icon-btn square ${state.isRefreshing ? "is-spinning" : ""}" data-action="refresh" title="立即刷新">${icon("refresh", "sm")}</button>
             </div>
           </div>
           ${renderSessionSwitcher(snap, true)}
         </div>
       </header>
       <div class="app-main" id="main-scroll">
-        <div class="app-main-inner">
+        <div class="app-main-inner ${enterCls}">
           ${renderMonitorContent(snap, true)}
         </div>
       </div>
@@ -1566,7 +1625,7 @@ function render() {
           <div class="brand">
             <span class="brand-dot ${state.liveEnabled ? "live" : "idle"}"></span>
             <span class="brand-title">${state.isNarrow ? "Pulse" : "Antigravity Pulse"}</span>
-            <span class="status-chip ${inflightCount > 0 ? "running" : ""}">${inflightCount > 0 ? `${inflightCount} 运行中` : "实时就绪"}</span>
+            <span class="status-chip ${inflightCount > 0 ? "running" : ""} ${flashCls}">${inflightCount > 0 ? `${inflightCount} 运行中` : "实时就绪"}</span>
           </div>
           <div class="topbar-actions">
             ${
@@ -1579,18 +1638,18 @@ function render() {
             <button class="icon-btn ${state.liveEnabled ? "active" : ""}" data-action="toggle-live" title="切换自动增量刷新">
               <i class="dot ${state.liveEnabled ? "ok" : "muted"}"></i><span>${state.liveEnabled ? "实时" : "暂停"}</span>
             </button>
-            <button class="icon-btn square" data-action="refresh" title="立即刷新">${icon("refresh", "sm")}</button>
+            <button class="icon-btn square ${state.isRefreshing ? "is-spinning" : ""}" data-action="refresh" title="立即刷新">${icon("refresh", "sm")}</button>
           </div>
         </div>
         <div class="nav-scroll" id="nav-scroll">
-          <nav class="nav-pills" aria-label="主导航">${navHtml}</nav>
+          <nav class="nav-pills" data-slider-key="main-nav" aria-label="主导航">${navHtml}</nav>
         </div>
         ${subHeaderHtml}
       </div>
     </header>
 
     <main class="app-main" id="main-scroll">
-      <div class="app-main-inner">
+      <div class="app-main-inner ${enterCls}">
         ${bodyHtml}
       </div>
     </main>
@@ -1601,6 +1660,7 @@ function render() {
   const nextNav = document.getElementById("nav-scroll");
   if (nextNav) nextNav.scrollLeft = prevNavLeft;
 
+  animatePillSliders();
   bindHeatmapScrollAndPin();
 }
 
@@ -1650,24 +1710,25 @@ function initEvents() {
     const val = el.getAttribute("data-val");
 
     if (action === "set-tab") {
+      if (state.tab === val) return;
       state.tab = val;
       const m = document.getElementById("main-scroll");
       if (m) m.scrollTop = 0;
-      render();
-      if (val === "tasks") fetchTasks();
-      if (val === "requests") fetchRequests();
-      if (val === "errors") fetchErrors();
+      render({ animate: true });
+      if (val === "tasks") fetchTasks(true);
+      if (val === "requests") fetchRequests(true);
+      if (val === "errors") fetchErrors(true);
     } else if (action === "switch-surface") {
       state.surface = val;
       state.surfaceLockedByUser = true;
-      render();
+      render({ animate: true });
     } else if (action === "refresh") {
-      await fetchSnapshot(true);
+      await fetchSnapshot(true, false);
       showToast("已刷新最新数据");
     } else if (action === "toggle-live") {
       state.liveEnabled = !state.liveEnabled;
       restartPollTimer();
-      render();
+      render({ animate: false });
       showToast(state.liveEnabled ? "已开启实时增量刷新" : "已暂停自动刷新");
     } else if (action === "toggle-unit") {
       const cur = getUnitFormat(state.snapshot?.settings);
@@ -1684,41 +1745,47 @@ function initEvents() {
       await saveSettings({ currency: next }, `币种切换为 ${labels[next]}`);
     } else if (action === "heat-metric") {
       state.heatmapMetric = val;
-      render();
+      render({ animate: false });
     } else if (action === "sort-model") {
       if (state.modelSort.key === val) {
         state.modelSort.dir = state.modelSort.dir === "desc" ? "asc" : "desc";
       } else {
         state.modelSort = { key: val, dir: "desc" };
       }
-      render();
+      render({ animate: false });
     } else if (action === "task-mode") {
       state.taskMode = val;
-      render();
+      render({ animate: true });
     } else if (action === "toggle-root") {
       if (state.expandedRoots.has(val)) state.expandedRoots.delete(val);
       else state.expandedRoots.add(val);
-      render();
+      // In-place toggle for butter-smooth CSS grid accordion transition
+      const card = el.closest(".task-card");
+      if (card) {
+        card.classList.toggle("is-open", state.expandedRoots.has(val));
+      } else {
+        render({ animate: false });
+      }
     } else if (action === "inspect-context") {
       state.selectedCid = val;
       state.tab = "monitor";
       const m = document.getElementById("main-scroll");
       if (m) m.scrollTop = 0;
-      await fetchSnapshot(true);
+      await fetchSnapshot(true, true);
     } else if (action === "req-filter") {
       state.reqQuery.filter = val;
       state.reqQuery.page = 1;
-      fetchRequests();
+      fetchRequests(true);
     } else if (action === "req-search-go") {
       const inp = document.getElementById("req-search");
       state.reqQuery.search = inp?.value || "";
       state.reqQuery.page = 1;
-      fetchRequests();
+      fetchRequests(true);
     } else if (action === "req-page") {
       state.reqQuery.page = Number(val) || 1;
       const m = document.getElementById("main-scroll");
       if (m) m.scrollTop = 0;
-      fetchRequests();
+      fetchRequests(true);
     } else if (action === "save-sub-pricing") {
       const customPricing = {};
       document.querySelectorAll("[data-model-price-row]").forEach((tr) => {
@@ -1795,14 +1862,14 @@ function initEvents() {
     if (action === "set-range") {
       state.range = el.value;
       state.reqQuery.page = 1;
-      await fetchSnapshot(true);
+      await fetchSnapshot(true, true);
     } else if (action === "set-model") {
       state.modelFilter = el.value;
       state.reqQuery.page = 1;
-      await fetchSnapshot(true);
+      await fetchSnapshot(true, true);
     } else if (action === "select-session") {
       state.selectedCid = el.value || null;
-      await fetchSnapshot(true);
+      await fetchSnapshot(true, true);
     }
   });
 
