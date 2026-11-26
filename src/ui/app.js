@@ -1169,29 +1169,44 @@ function renderOverviewTab(snap) {
         `;
       };
 
-      const modelRows = (poolData.modelEstimates || [])
-        .map((me) => {
+      const poolModels = poolData.modelEstimates || [];
+      const fullTokList = poolModels.map((me) =>
+        me.blendedPerMillionUsd > 0 ? Math.round((focusCapUsd / me.blendedPerMillionUsd) * 1e6) : 0
+      );
+      const maxFullTok = Math.max(...fullTokList, 1);
+
+      const modelRows = poolModels
+        .map((me, idx) => {
           const remTok =
             scope === "5h"
               ? me.fiveHourRemainingTokens
               : scope === "cycle"
                 ? me.cycleRemainingTokens
                 : me.weeklyRemainingTokens;
+          const fullTok = fullTokList[idx];
+          const capPct = fullTok > 0 ? Math.max(4, Math.min(100, (fullTok / maxFullTok) * 100)) : 0;
+          const remBarPct = remTok > 0 ? Math.max(2.5, Math.min(capPct, (remTok / maxFullTok) * 100)) : 0;
           const noCacheTok = scope === "cycle" ? me.noCacheCycleTokens : me.noCacheWeeklyTokens;
           const basisText = me.basis === "observed" ? "按该模型实测均价" : "按全局缓存比例估算";
           const tip = esc(
-            `<strong>${me.label}（${poolData.name}）</strong><br/>${scopeLabel}约可用: <strong>${fmtTokens(remTok, 2, s)}</strong><br/>综合均价: ${fmtUsd(me.blendedPerMillionUsd, 2)} / 百万 (${basisText})<br/>无缓存保底参考: ${fmtTokens(noCacheTok, 2, s)}<br/>本周期该模型已用: ${fmtTokens(me.cycleUsedTokens, 2, s)} (${fmtCost(me.cycleUsedUsd, s)})`
+            `<strong>${me.label}（${poolData.name}）</strong><br/>${scopeLabel}约可用: <strong>${fmtTokens(remTok, 2, s)}</strong> / 满池 ${fmtTokens(fullTok, 2, s)} (${focusRemPct}%)<br/>综合均价: ${fmtUsd(me.blendedPerMillionUsd, 2)} / 百万 (${basisText})<br/>无缓存保底参考: ${fmtTokens(noCacheTok, 2, s)}<br/>本周期该模型已用: ${fmtTokens(me.cycleUsedTokens, 2, s)} (${fmtCost(me.cycleUsedUsd, s)})`
           );
           return `
             <div class="pool-model-row" data-tip="${tip}">
-              <span class="pool-model-left">
-                <span class="model-dot" style="background:${me.color}"></span>
-                <span style="font-weight:500">${esc(me.label)}</span>
-              </span>
-              <span class="pool-model-right num">
-                <span style="font-weight:700">约 ${fmtTokens(remTok, 1, s)}</span>
-                <span style="font-size:10.5px;color:var(--fg-muted)">${fmtUsd(me.blendedPerMillionUsd, 2)}/M</span>
-              </span>
+              <div class="pool-model-top">
+                <span class="pool-model-left">
+                  <span class="model-dot" style="background:${me.color}"></span>
+                  <span style="font-weight:500">${esc(me.label)}</span>
+                </span>
+                <span class="pool-model-right num">
+                  <span style="font-weight:700">约 ${fmtTokens(remTok, 1, s)}</span>
+                  <span style="font-size:10.5px;color:var(--fg-muted)">${fmtUsd(me.blendedPerMillionUsd, 2)}/M</span>
+                </span>
+              </div>
+              <div class="pool-model-bar-track">
+                <div class="pool-model-bar-cap" style="width:${capPct.toFixed(1)}%;background:${me.color}"></div>
+                <div class="pool-model-bar-rem" style="width:${remBarPct.toFixed(1)}%;background:${me.color}"></div>
+              </div>
             </div>
           `;
         })

@@ -1478,16 +1478,21 @@ html.theme-ready .app-shell {
 }
 .pool-model-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 6px;
+  flex-direction: column;
+  gap: 5px;
+  padding: 5px 6px;
   border-radius: var(--r-sm);
   font-size: 12px;
   transition: background var(--t-fast) ease;
 }
 .pool-model-row:hover {
   background: var(--bg-hover);
+}
+.pool-model-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 .pool-model-left {
   display: inline-flex;
@@ -1504,6 +1509,28 @@ html.theme-ready .app-shell {
   gap: 8px;
   white-space: nowrap;
   flex: none;
+}
+.pool-model-bar-track {
+  position: relative;
+  height: 5px;
+  width: 100%;
+  border-radius: var(--r-pill);
+  background: var(--bg-pill);
+  overflow: hidden;
+}
+.pool-model-bar-cap {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--r-pill);
+  opacity: 0.22;
+  transition: width 340ms var(--ease-out-expo);
+}
+.pool-model-bar-rem {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--r-pill);
+  transform-origin: left center;
+  transition: width 360ms var(--ease-out-expo);
 }
 
 /* Calibration grid in pricing tab */
@@ -1790,7 +1817,8 @@ html.theme-ready .app-shell {
   transform-origin: 69px 69px;
   animation: donutDraw 480ms var(--ease-out-expo) both;
 }
-.is-entering .dist-bar-fill {
+.is-entering .dist-bar-fill,
+.is-entering .pool-model-bar-rem {
   animation: growX 460ms var(--ease-out-expo) both;
   animation-delay: 80ms;
 }
