@@ -760,11 +760,8 @@ html.theme-ready .app-shell {
 }
 .kpi-equiv {
   margin-top: 6px;
-  padding: 5px 6px 2px;
-  margin-left: -6px;
-  margin-right: -6px;
+  padding-top: 5px;
   border-top: 1px dashed var(--border-subtle);
-  border-radius: var(--r-sm);
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
@@ -772,12 +769,6 @@ html.theme-ready .app-shell {
   font-size: 11px;
   line-height: 1.35;
   color: var(--fg-secondary);
-  cursor: pointer;
-  user-select: none;
-  transition: background var(--t-fast) ease, color var(--t-fast) ease;
-}
-.kpi-equiv:hover {
-  background: var(--bg-hover);
 }
 .kpi-equiv .ico {
   align-self: center;
@@ -805,17 +796,15 @@ html.theme-ready .app-shell {
   flex-wrap: wrap;
   font-size: 11.5px;
   color: var(--fg-secondary);
-  cursor: pointer;
-  user-select: none;
-  transition: background var(--t-fast) ease, border-color var(--t-fast) ease;
-}
-.ctx-equiv:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-strong);
 }
 .ctx-equiv strong {
   color: var(--fg-primary);
   font-weight: 600;
+}
+.equiv-tag {
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  white-space: nowrap;
 }
 .spark-wrap {
   height: 28px;

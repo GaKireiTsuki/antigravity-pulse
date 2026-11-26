@@ -78,170 +78,30 @@ function fmtCharsZh(chars) {
   return `${c.toLocaleString("zh-CN")} 字`;
 }
 
-// Ascending world-civilization literary ladder: each usage magnitude defaults to
-// an iconic work from a different cultural tradition, with click-to-cycle peers.
+// Ascending 20-tier world-civilization literary ladder with fine granularity
+// in small/medium ranges so classics from diverse cultures appear naturally
+// across sessions, tasks, per-model bars, daily heatmap, and overall totals.
 const BOOK_TIERS = [
-  {
-    min: 2_500_000_000,
-    books: [
-      { culture: "全球", size: 4_500_000_000, unit: "座", name: "《英文维基百科》" },
-      { culture: "中国", size: 800_000_000, unit: "部", name: "《四库全书》" },
-      { culture: "英国", size: 80_000_000, unit: "套", name: "《大英百科全书》" },
-      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
-    ],
-  },
-  {
-    min: 950_000_000,
-    books: [
-      { culture: "全球", size: 1_000_000_000, unit: "座", name: "《中文维基百科》" },
-      { culture: "中国", size: 800_000_000, unit: "部", name: "《四库全书》" },
-      { culture: "英国", size: 80_000_000, unit: "套", name: "《大英百科全书》" },
-      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
-      { culture: "阿拉伯", size: 1_600_000, unit: "部", name: "《一千零一夜》" },
-      { culture: "日本", size: 1_050_000, unit: "部", name: "《源氏物语》" },
-    ],
-  },
-  {
-    min: 550_000_000,
-    books: [
-      { culture: "中国", size: 800_000_000, unit: "部", name: "《四库全书》" },
-      { culture: "全球", size: 1_000_000_000, unit: "座", name: "《中文维基百科》" },
-      { culture: "英国", size: 80_000_000, unit: "套", name: "《大英百科全书》" },
-      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
-      { culture: "俄国", size: 1_200_000, unit: "部", name: "《战争与和平》" },
-    ],
-  },
-  {
-    min: 220_000_000,
-    books: [
-      { culture: "中国", size: 370_000_000, unit: "部", name: "《永乐大典》" },
-      { culture: "英国", size: 80_000_000, unit: "套", name: "《大英百科全书》" },
-      { culture: "东亚", size: 100_000_000, unit: "套", name: "《大正新修大藏经》" },
-      { culture: "法国", size: 24_000_000, unit: "套", name: "《人间喜剧》全集" },
-      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
-    ],
-  },
-  {
-    min: 55_000_000,
-    books: [
-      { culture: "英国", size: 80_000_000, unit: "套", name: "《大英百科全书》" },
-      { culture: "东亚", size: 100_000_000, unit: "套", name: "《大正新修大藏经》" },
-      { culture: "中国", size: 40_000_000, unit: "套", name: "《二十四史》" },
-      { culture: "法国", size: 24_000_000, unit: "套", name: "《人间喜剧》全集" },
-      { culture: "日本", size: 11_000_000, unit: "套", name: "《德川家康》全集" },
-    ],
-  },
-  {
-    min: 20_000_000,
-    books: [
-      { culture: "法国", size: 24_000_000, unit: "套", name: "《人间喜剧》全集" },
-      { culture: "中国", size: 40_000_000, unit: "套", name: "《二十四史》" },
-      { culture: "日本", size: 11_000_000, unit: "套", name: "《德川家康》全集" },
-      { culture: "华语", size: 11_000_000, unit: "套", name: "《金庸全集》" },
-      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
-    ],
-  },
-  {
-    min: 8_500_000,
-    books: [
-      { culture: "日本", size: 11_000_000, unit: "套", name: "《德川家康》全集" },
-      { culture: "华语", size: 11_000_000, unit: "套", name: "《金庸全集》" },
-      { culture: "法国", size: 24_000_000, unit: "套", name: "《人间喜剧》全集" },
-      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
-      { culture: "英国", size: 2_100_000, unit: "套", name: "《哈利·波特》全集" },
-    ],
-  },
-  {
-    min: 3_200_000,
-    books: [
-      { culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
-      { culture: "中国", size: 3_150_000, unit: "套", name: "《四大名著》" },
-      { culture: "欧美", size: 3_600_000, unit: "套", name: "《冰与火之歌》" },
-      { culture: "英国", size: 2_600_000, unit: "套", name: "《莎士比亚全集》" },
-      { culture: "法国", size: 2_400_000, unit: "部", name: "《追忆似水年华》" },
-    ],
-  },
-  {
-    min: 1_500_000,
-    books: [
-      { culture: "阿拉伯", size: 1_600_000, unit: "部", name: "《一千零一夜》" },
-      { culture: "英国", size: 2_100_000, unit: "套", name: "《哈利·波特》全集" },
-      { culture: "法国", size: 2_400_000, unit: "部", name: "《追忆似水年华》" },
-      { culture: "中国", size: 3_150_000, unit: "套", name: "《四大名著》" },
-      { culture: "俄国", size: 1_200_000, unit: "部", name: "《战争与和平》" },
-    ],
-  },
-  {
-    min: 850_000,
-    books: [
-      { culture: "俄国", size: 1_200_000, unit: "部", name: "《战争与和平》" },
-      { culture: "日本", size: 1_050_000, unit: "部", name: "《源氏物语》" },
-      { culture: "英国", size: 1_000_000, unit: "套", name: "《魔戒》全三部曲" },
-      { culture: "中国", size: 880_000, unit: "套", name: "《三体》全集" },
-      { culture: "西班牙", size: 800_000, unit: "部", name: "《堂吉诃德》" },
-      { culture: "法国", size: 1_100_000, unit: "部", name: "《悲惨世界》" },
-    ],
-  },
-  {
-    min: 380_000,
-    books: [
-      { culture: "古希腊", size: 450_000, unit: "部", name: "《荷马史诗》" },
-      { culture: "俄国", size: 420_000, unit: "部", name: "《罪与罚》" },
-      { culture: "西班牙", size: 800_000, unit: "部", name: "《堂吉诃德》" },
-      { culture: "中国", size: 880_000, unit: "套", name: "《三体》全集" },
-      { culture: "英国", size: 250_000, unit: "本", name: "《傲慢与偏见》" },
-    ],
-  },
-  {
-    min: 180_000,
-    books: [
-      { culture: "拉美", size: 260_000, unit: "本", name: "《百年孤独》" },
-      { culture: "日本", size: 260_000, unit: "本", name: "《挪威的森林》" },
-      { culture: "英国", size: 250_000, unit: "本", name: "《傲慢与偏见》" },
-      { culture: "中国", size: 200_000, unit: "本", name: "《三体Ⅰ》" },
-      { culture: "英国", size: 200_000, unit: "本", name: "《1984》" },
-    ],
-  },
-  {
-    min: 80_000,
-    books: [
-      { culture: "美国", size: 140_000, unit: "本", name: "《瓦尔登湖》" },
-      { culture: "中国", size: 130_000, unit: "本", name: "《呼兰河传》" },
-      { culture: "日本", size: 70_000, unit: "本", name: "《雪国》" },
-      { culture: "拉美", size: 260_000, unit: "本", name: "《百年孤独》" },
-      { culture: "英国", size: 200_000, unit: "本", name: "《1984》" },
-    ],
-  },
-  {
-    min: 18_000,
-    books: [
-      { culture: "法国", size: 30_000, unit: "本", name: "《小王子》" },
-      { culture: "日本", size: 55_000, unit: "本", name: "《人间失格》" },
-      { culture: "美国", size: 35_000, unit: "本", name: "《老人与海》" },
-      { culture: "英国", size: 45_000, unit: "部", name: "《哈姆雷特》" },
-      { culture: "捷克", size: 28_000, unit: "本", name: "《变形记》" },
-      { culture: "中国", size: 65_000, unit: "本", name: "《边城》" },
-    ],
-  },
-  {
-    min: 2_500,
-    books: [
-      { culture: "日本", size: 5_500, unit: "篇", name: "《罗生门》" },
-      { culture: "中国", size: 3_000, unit: "篇", name: "《孔乙己》" },
-      { culture: "法国", size: 4_500, unit: "篇", name: "《项链》" },
-      { culture: "美国", size: 3_500, unit: "篇", name: "《麦琪的礼物》" },
-      { culture: "俄国", size: 18_000, unit: "篇", name: "《外套》" },
-    ],
-  },
-  {
-    min: 400,
-    books: [
-      { culture: "中国", size: 620, unit: "篇", name: "《出师表》" },
-      { culture: "古希腊", size: 1_000, unit: "辑", name: "《伊索寓言》精选" },
-      { culture: "印度", size: 1_200, unit: "辑", name: "《飞鸟集》节选" },
-      { culture: "日本", size: 1_000, unit: "篇", name: "《枕草子》节选" },
-    ],
-  },
+  { min: 2_500_000_000, culture: "全球", size: 4_500_000_000, unit: "座", name: "《英文维基百科》" },
+  { min: 950_000_000, culture: "全球", size: 1_000_000_000, unit: "座", name: "《中文维基百科》" },
+  { min: 550_000_000, culture: "中国", size: 800_000_000, unit: "部", name: "《四库全书》" },
+  { min: 220_000_000, culture: "中国", size: 370_000_000, unit: "部", name: "《永乐大典》" },
+  { min: 55_000_000, culture: "英国", size: 80_000_000, unit: "套", name: "《大英百科全书》" },
+  { min: 20_000_000, culture: "法国", size: 24_000_000, unit: "套", name: "《人间喜剧》全集" },
+  { min: 8_500_000, culture: "日本", size: 11_000_000, unit: "套", name: "《德川家康》全集" },
+  { min: 3_200_000, culture: "印度", size: 4_500_000, unit: "部", name: "《摩诃婆罗多》" },
+  { min: 1_800_000, culture: "阿拉伯", size: 1_600_000, unit: "部", name: "《一千零一夜》" },
+  { min: 1_050_000, culture: "俄国", size: 1_200_000, unit: "部", name: "《战争与和平》" },
+  { min: 650_000, culture: "西班牙", size: 800_000, unit: "部", name: "《堂吉诃德》" },
+  { min: 360_000, culture: "古希腊", size: 450_000, unit: "部", name: "《荷马史诗》" },
+  { min: 180_000, culture: "拉美", size: 260_000, unit: "本", name: "《百年孤独》" },
+  { min: 90_000, culture: "美国", size: 140_000, unit: "本", name: "《瓦尔登湖》" },
+  { min: 50_000, culture: "日本", size: 70_000, unit: "本", name: "《雪国》" },
+  { min: 28_000, culture: "法国", size: 30_000, unit: "本", name: "《小王子》" },
+  { min: 14_000, culture: "捷克", size: 28_000, unit: "本", name: "《变形记》" },
+  { min: 4_500, culture: "日本", size: 5_500, unit: "篇", name: "《罗生门》" },
+  { min: 1_800, culture: "美国", size: 3_500, unit: "篇", name: "《麦琪的礼物》" },
+  { min: 300, culture: "中国", size: 620, unit: "篇", name: "《出师表》" },
 ];
 
 function fmtBookRatio(chars, book) {
@@ -256,27 +116,26 @@ function fmtBookRatio(chars, book) {
 }
 
 /**
- * Convert raw token count into relatable cross-cultural literary milestones
+ * Map token count onto the ascending cross-cultural literary ladder
  * plus estimated equivalent character count (~0.75 mixed chars per token).
- * Users can click the readout to cycle across cultural traditions.
  */
-function describeTokenScale(tokens, pickOffset = 0) {
+function describeTokenScale(tokens, outputTokens = 0) {
   const t = Number(tokens || 0);
   if (t <= 0) return null;
   const chars = Math.round(t * 0.75);
   const charsText = fmtCharsZh(chars);
 
   const tier = BOOK_TIERS.find((tr) => chars >= tr.min) || null;
-  let headline = "一篇短文";
-  let culture = "";
-  let crossCulturalLines = [];
+  const headline = tier ? fmtBookRatio(chars, tier) : "一篇短评";
+  const culture = tier ? tier.culture : "";
 
-  if (tier) {
-    const idx = ((pickOffset % tier.books.length) + tier.books.length) % tier.books.length;
-    const chosen = tier.books[idx];
-    headline = fmtBookRatio(chars, chosen);
-    culture = chosen.culture;
-    crossCulturalLines = tier.books.slice(0, 6).map((b) => `${b.culture}：${fmtBookRatio(chars, b)}`);
+  let outputLine = "";
+  if (outputTokens > 0) {
+    const outChars = Math.round(outputTokens * 0.75);
+    const outTier = BOOK_TIERS.find((tr) => outChars >= tr.min);
+    if (outTier) {
+      outputLine = `<br/>纯模型输出：约 ${fmtCharsZh(outChars)}（相当于 ${outTier.culture} · ${fmtBookRatio(outChars, outTier)}）`;
+    }
   }
 
   // Double-sided A4 print reference (~2,400 chars/sheet, 0.1mm/sheet)
@@ -288,7 +147,7 @@ function describeTokenScale(tokens, pickOffset = 0) {
       : `双面 A4 纸约 ${sheets.toLocaleString("zh-CN")} 张（厚约 ${(heightM * 100).toFixed(1)} 厘米）`;
 
   const tip = esc(
-    `<strong>跨文化体量换算（按 1 Token ≈ 0.75 字）</strong><br/>折合字数：<strong>约 ${charsText}</strong>${crossCulturalLines.length ? `<br/>${crossCulturalLines.join("<br/>")}` : ""}<br/><span style="color:var(--fg-muted)">${printStr} · 点击可切换参照书目</span>`
+    `<strong>体量换算（按 1 Token ≈ 0.75 字）</strong><br/>折合字数：<strong>约 ${charsText}</strong><br/>相当于：${culture ? `${culture} · ` : ""}<strong>${headline}</strong>${outputLine}<br/><span style="color:var(--fg-muted)">${printStr}</span>`
   );
 
   return { chars, charsText, headline, culture, tip };
@@ -426,7 +285,6 @@ const state = {
   modelFilter: "all",
   selectedCid: null,
   quotaScope: "weekly", // "weekly" | "5h" | "cycle"
-  equivIndex: 0,
   heatmapMetric: "tokens",
   heatmapPinnedRight: true,
   heatmapScrollLeft: null,
@@ -743,13 +601,15 @@ function getHeatmapMetricMeta(days, metric, settings) {
       const tokLine = `Token: ${fmtTokens(d.tokens, 2, settings)}`;
       const reqLine = `请求: ${fmtInt(d.requests)} 次`;
       const costLine = `费用: ${fmtCost(d.cost, settings)}`;
+      const dayEq = d.tokens > 0 ? describeTokenScale(d.tokens) : null;
+      const eqLine = dayEq ? `<br/><span style="color:var(--fg-secondary)">相当于 ${dayEq.headline}（约 ${dayEq.charsText}）</span>` : "";
       const lines =
         metric === "cost"
           ? [`<strong style="color:var(--green)">${costLine}</strong>`, tokLine, reqLine]
           : metric === "requests"
             ? [`<strong style="color:var(--purple)">${reqLine}</strong>`, tokLine, costLine]
             : [`<strong style="color:var(--accent)">${tokLine}</strong>`, reqLine, costLine];
-      return `<strong>${d.date}</strong><br/>${lines.join("<br/>")}<br/>缓存命中: ${d.cacheHitRate}%`;
+      return `<strong>${d.date}</strong><br/>${lines.join("<br/>")}<br/>缓存命中: ${d.cacheHitRate}%${eqLine}`;
     },
   };
 }
@@ -1127,7 +987,7 @@ function renderMonitorContent(snap, compactMode) {
       )
       .join("");
 
-    const ctxEquiv = describeTokenScale(ctx.contextTokens, state.equivIndex);
+    const ctxEquiv = describeTokenScale(ctx.contextTokens);
     const pctBadgeCls = ctx.usagePercent >= 85 ? "err" : ctx.usagePercent >= 65 ? "warn" : "info";
     ctxCardHtml = `
       <div class="card">
@@ -1145,8 +1005,8 @@ function renderMonitorContent(snap, compactMode) {
         <div class="ctx-list">${catItems}</div>
         ${
           ctxEquiv
-            ? `<div class="ctx-equiv" data-action="cycle-equiv" data-tokens="${ctx.contextTokens}" data-equiv-mode="ctx" data-tip="${ctxEquiv.tip}">
-                <span style="display:inline-flex;align-items:center;gap:5px">${icon("bookOpen", "sm muted")}<span>本会话上下文相当于 <strong data-equiv-headline>${esc(ctxEquiv.headline)}</strong></span></span>
+            ? `<div class="ctx-equiv" data-tip="${ctxEquiv.tip}">
+                <span style="display:inline-flex;align-items:center;gap:5px">${icon("bookOpen", "sm muted")}<span>本会话上下文相当于 <strong>${esc(ctxEquiv.headline)}</strong></span></span>
                 <span class="num" style="font-size:10.5px;color:var(--fg-muted)">约 ${esc(ctxEquiv.charsText)}</span>
               </div>`
             : ""
@@ -1285,11 +1145,11 @@ function renderOverviewTab(snap) {
             <span class="${hitClass(k.cacheHitRate)}">命中 ${k.cacheHitRate}%</span>
           </div>
           ${(() => {
-            const eq = describeTokenScale(k.totalTokens, state.equivIndex);
+            const eq = describeTokenScale(k.totalTokens, k.outputTokens);
             return eq
-              ? `<div class="kpi-equiv" data-action="cycle-equiv" data-tokens="${k.totalTokens}" data-equiv-mode="kpi" data-tip="${eq.tip}">
+              ? `<div class="kpi-equiv" data-tip="${eq.tip}">
                   ${icon("bookOpen", "sm")}
-                  <span>相当于 <strong data-equiv-headline>${esc(eq.headline)}</strong></span>
+                  <span>相当于 <strong>${esc(eq.headline)}</strong></span>
                   <span class="kpi-equiv-sub num">约 ${esc(eq.charsText)}</span>
                 </div>`
               : "";
@@ -1621,13 +1481,15 @@ function renderOverviewTab(snap) {
   `;
 
   const distItemsHtml = models
-    .map(
-      (m) => `
-      <div class="dist-item">
+    .map((m) => {
+      const mEq = describeTokenScale(m.tokens, m.outputTokens);
+      return `
+      <div class="dist-item" ${mEq ? `data-tip="${mEq.tip}"` : ""}>
         <div class="dist-item-top">
           <span class="dist-item-name">
             <span class="model-dot" style="background:${m.color}"></span>
             <strong>${esc(m.label)}</strong>
+            ${mEq ? `<span class="equiv-tag hide-xs">≈ ${esc(mEq.headline)}</span>` : ""}
           </span>
           <span class="dist-item-nums num">
             <span>${fmtTokens(m.tokens, 2, s)}</span>
@@ -1640,8 +1502,8 @@ function renderOverviewTab(snap) {
           <div class="dist-bar-fill" style="width:${Math.max(m.tokens > 0 ? 1.5 : 0, m.shareTokens)}%;background:${m.color}"></div>
         </div>
       </div>
-    `
-    )
+    `;
+    })
     .join("");
 
   const donutCard = `
@@ -1743,14 +1605,16 @@ function renderTasksTab(snap) {
             <div class="task-collapse-inner">
               <div class="task-children">
                 ${r.children
-                  .map(
-                    (c) => `
+                  .map((c) => {
+                    const cEq = describeTokenScale(c.tokens);
+                    return `
                     <div class="child-row">
                       <div class="task-title-col">
                         <span class="model-dot" style="background:${c.primaryModelColor}"></span>
                         ${c.depth > 0 ? icon("subBranch", "sm muted") : icon("sparkles", "sm muted")}
                         <span style="color:var(--fg-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px" title="${esc(c.displayTitle)}">${esc(c.displayTitle)}</span>
                         <span class="badge neutral">${esc(c.primaryModel)}</span>
+                        ${cEq ? `<span class="equiv-tag hide-xs" data-tip="${cEq.tip}">≈ ${esc(cEq.headline)}</span>` : ""}
                         ${c.anomalies > 0 ? `<span class="badge warn">${c.anomalies} 掉缓存</span>` : ""}
                       </div>
                       <div class="task-stats num">
@@ -1761,13 +1625,14 @@ function renderTasksTab(snap) {
                         <button class="btn sm" data-action="inspect-context" data-val="${esc(c.cid)}">上下文</button>
                       </div>
                     </div>
-                  `
-                  )
+                  `;
+                  })
                   .join("")}
               </div>
             </div>
           </div>`;
 
+        const rEq = describeTokenScale(r.tokens);
         return `
           <div class="task-card ${open ? "is-open" : ""}" data-root-card="${esc(r.rootId)}">
             <div class="task-header" data-action="toggle-root" data-val="${esc(r.rootId)}">
@@ -1775,6 +1640,7 @@ function renderTasksTab(snap) {
                 ${icon("chevronRight", "sm muted task-chevron")}
                 <span class="task-title" title="${esc(r.title)}">${esc(r.title)}</span>
                 ${r.sessionCount > 1 ? `<span class="badge info num">${r.sessionCount} 会话</span>` : ""}
+                ${rEq ? `<span class="equiv-tag hide-xs" data-tip="${rEq.tip}">≈ ${esc(rEq.headline)}</span>` : ""}
                 <span style="font-size:11px;color:var(--fg-muted)">${fmtTimeShort(r.firstTs)} ~ ${fmtTimeShort(r.lastTs)}</span>
               </div>
               <div class="task-stats num">
@@ -2532,7 +2398,7 @@ function buildMarkdownReport(snap) {
   const k = snap.kpi;
   const s = snap.settings;
   const sub = snap.subscription;
-  const tokEq = describeTokenScale(k.totalTokens, state.equivIndex);
+  const tokEq = describeTokenScale(k.totalTokens, k.outputTokens);
   const lines = [
     `# Antigravity Pulse 用量报告 (${snap.range})`,
     ``,
@@ -2679,15 +2545,6 @@ function initEvents() {
       if (state.heatmapMetric === val) return;
       state.heatmapMetric = val;
       updateHeatmapInPlace(val);
-    } else if (action === "cycle-equiv") {
-      state.equivIndex = (state.equivIndex + 1) % 1000;
-      document.querySelectorAll('[data-action="cycle-equiv"]').forEach((box) => {
-        const toks = Number(box.getAttribute("data-tokens") || 0);
-        const eq = describeTokenScale(toks, state.equivIndex);
-        if (!eq) return;
-        const hl = box.querySelector("[data-equiv-headline]");
-        if (hl) hl.textContent = eq.headline;
-      });
     } else if (action === "quota-scope") {
       state.quotaScope = val;
       render({ animate: false });
