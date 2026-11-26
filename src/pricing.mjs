@@ -30,6 +30,7 @@ export const DEFAULT_SETTINGS = {
     claude5h: null,
     claude7d: null,
   },
+  bonusResets: [], // [{ id, pool: "gemini"|"claude", scope: "both"|"5h"|"7d", atMs, note }]
   contextLimits: {
     default: 512000,
     "gemini-4-neon": 512000,

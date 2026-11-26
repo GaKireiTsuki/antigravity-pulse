@@ -749,8 +749,10 @@ export class PulseStore {
     };
 
     const savedAnchors = this.settings.quotaAnchors || {};
+    const savedBonusResets = Array.isArray(this.settings.bonusResets) ? this.settings.bonusResets : [];
 
     const inferForPool = (pool) => {
+      const poolSteps = byPoolSteps[pool];
       const poolHints = hints.filter((h) => h.pool === pool);
       const hints5h = poolHints.filter((h) => h.kind === "5h");
       const hints7d = poolHints.filter((h) => h.kind === "7d");
@@ -770,15 +772,205 @@ export class PulseStore {
         const agg = sumPoolBetween(pool, h.resetsAtMs - FIVE_HOURS_MS, h.tsMs);
         if (agg.cost >= 0.5) samples5h.push(agg.cost / (usedPct / 100));
       }
+      const med5h = median(samples5h);
+
+      // 1b. Automatically detect official extra/bonus resets + merge user-recorded manual resets
+      const detectedResets = [];
+      const pushReset = (ev) => {
+        // Deduplicate events within 35 minutes on the same pool
+        const existing = detectedResets.find((r) => Math.abs(r.atMs - ev.atMs) <= 35 * 60000);
+        if (existing) {
+          if (ev.scope === "both") existing.scope = "both";
+          if (ev.wiped7dUsd > (existing.wiped7dUsd || 0)) existing.wiped7dUsd = ev.wiped7dUsd;
+          if (ev.wiped5hUsd > (existing.wiped5hUsd || 0)) existing.wiped5hUsd = ev.wiped5hUsd;
+          if (ev.source === "manual") {
+            existing.id = ev.id;
+            existing.manual = true;
+          }
+          return;
+        }
+        detectedResets.push(ev);
+      };
+
+      // Merge user-recorded manual extra resets first
+      for (const br of savedBonusResets) {
+        if (!br || br.pool !== pool || !Number.isFinite(br.atMs)) continue;
+        const wiped5h = sumPoolBetween(pool, br.atMs - FIVE_HOURS_MS, br.atMs - 1).cost;
+        const wiped7d = sumPoolBetween(pool, br.atMs - SEVEN_DAYS_MS, br.atMs - 1).cost;
+        pushReset({
+          id: br.id || `manual-${br.atMs}`,
+          pool,
+          scope: br.scope || "both",
+          atMs: br.atMs,
+          source: "manual",
+          manual: true,
+          kind: "manual",
+          reason: br.note || "手动记录官方额外重置",
+          wiped5hUsd: Number(wiped5h.toFixed(2)),
+          wiped7dUsd: Number(wiped7d.toFixed(2)),
+        });
+      }
+
+      const ref5hCap = med5h || (pool === "claude" ? DEFAULT_SETTINGS.budgets.claude5hUsd : DEFAULT_SETTINGS.budgets.gemini5hUsd);
+
+      // Detector A: Mid-session 5h window restart (active continuous usage right before winStart,
+      // not aligned to any prior 5h reset grid, with significant spend wiped right before winStart)
+      const distinct5hWindows = [];
+      for (const h of [...hints5h].sort((a, b) => a.resetsAtMs - b.resetsAtMs || a.tsMs - b.tsMs)) {
+        const prevWin = distinct5hWindows[distinct5hWindows.length - 1];
+        if (!prevWin || Math.abs(h.resetsAtMs - prevWin.resetsAtMs) > 2 * 60000) {
+          distinct5hWindows.push({ resetsAtMs: h.resetsAtMs, winStart: h.resetsAtMs - FIVE_HOURS_MS, firstHint: h, hints: [h] });
+        } else {
+          prevWin.hints.push(h);
+        }
+      }
+      for (let wi = 0; wi < distinct5hWindows.length; wi++) {
+        const w = distinct5hWindows[wi];
+        const alignedToPriorReset = distinct5hWindows
+          .slice(0, wi)
+          .some((pw) => {
+            const diff = w.winStart - pw.resetsAtMs;
+            if (diff < -10 * 60000) return false;
+            const mod = diff % FIVE_HOURS_MS;
+            return mod <= 10 * 60000 || FIVE_HOURS_MS - mod <= 10 * 60000;
+          });
+        if (alignedToPriorReset) continue;
+
+        // Walk backward from winStart to find contiguous usage block leading right into winStart
+        let prevStepIdx = -1;
+        for (let i = poolSteps.length - 1; i >= 0; i--) {
+          if (poolSteps[i].tsMs < w.winStart) {
+            prevStepIdx = i;
+            break;
+          }
+        }
+        if (prevStepIdx < 0) continue;
+        const lastBeforeGapMs = w.winStart - poolSteps[prevStepIdx].tsMs;
+        if (lastBeforeGapMs > 30 * 60000) continue; // Not actively running right before winStart
+
+        let blockStartIdx = prevStepIdx;
+        while (blockStartIdx > 0) {
+          const gap = poolSteps[blockStartIdx].tsMs - poolSteps[blockStartIdx - 1].tsMs;
+          if (gap > 4.5 * 3600000) break;
+          if (w.winStart - poolSteps[blockStartIdx - 1].tsMs > FIVE_HOURS_MS) break;
+          blockStartIdx--;
+        }
+        const blockStartMs = poolSteps[blockStartIdx].tsMs;
+        if (w.winStart - blockStartMs < 15 * 60000) continue;
+
+        const preWinSpend = sumPoolBetween(pool, Math.max(blockStartMs, w.winStart - FIVE_HOURS_MS), w.winStart - 1).cost;
+        const totalBlockSpend = sumPoolBetween(pool, blockStartMs, w.firstHint.tsMs).cost;
+        if (preWinSpend >= Math.max(1.5, ref5hCap * 0.2) && totalBlockSpend >= ref5hCap * 1.05) {
+          const wiped7d = sumPoolBetween(pool, w.winStart - SEVEN_DAYS_MS, w.winStart - 1).cost;
+          // Check if weekly limit also aligned to this reset timestamp (within ±90m due to hour-truncated View Usage UI)
+          const manual7dStart =
+            manual7dAnchor && Number.isFinite(manual7dAnchor.resetsAtMs)
+              ? manual7dAnchor.resetsAtMs - SEVEN_DAYS_MS
+              : null;
+          const weeklyAligned =
+            (manual7dStart !== null && Math.abs(manual7dStart - w.winStart) <= 90 * 60000) ||
+            (wiped7d >= ref5hCap * 2 && sumPoolBetween(pool, w.winStart, nowMs).cost >= ref5hCap * 1.5);
+          pushReset({
+            id: `auto-restart-${pool}-${w.winStart}`,
+            pool,
+            scope: weeklyAligned ? "both" : "5h",
+            atMs: w.winStart,
+            source: "auto",
+            manual: false,
+            kind: "window_restart",
+            reason: `连续使用中途 5h 窗口重启（前段已耗 $${preWinSpend.toFixed(2)} 被清空）`,
+            wiped5hUsd: Number(preWinSpend.toFixed(2)),
+            wiped7dUsd: weeklyAligned ? Number(wiped7d.toFixed(2)) : 0,
+          });
+        }
+      }
+
+      // Detector B: Same-window [quota] remaining percentage jumps upward by >=10% before resetsAt
+      const sortedHints = [...poolHints].sort((a, b) => a.tsMs - b.tsMs);
+      for (let i = 1; i < sortedHints.length; i++) {
+        const prev = sortedHints[i - 1];
+        const curr = sortedHints[i];
+        if (
+          curr.kind === prev.kind &&
+          curr.tsMs < prev.resetsAtMs - 5 * 60000 &&
+          curr.remainingPct >= prev.remainingPct + 10
+        ) {
+          const wiped5h = sumPoolBetween(pool, curr.tsMs - FIVE_HOURS_MS, curr.tsMs - 1).cost;
+          const wiped7d = sumPoolBetween(pool, curr.tsMs - SEVEN_DAYS_MS, curr.tsMs - 1).cost;
+          pushReset({
+            id: `auto-jump-${pool}-${curr.tsMs}`,
+            pool,
+            scope: curr.kind === "7d" ? "both" : "5h",
+            atMs: curr.tsMs,
+            source: "auto",
+            manual: false,
+            kind: "quota_jump",
+            reason: `重置前配额剩余比例从 ${prev.remainingPct}% 跳升至 ${curr.remainingPct}%`,
+            wiped5hUsd: Number(wiped5h.toFixed(2)),
+            wiped7dUsd: curr.kind === "7d" ? Number(wiped7d.toFixed(2)) : 0,
+          });
+        }
+      }
+
+      // Detector C: Quota-exhausted error followed by successful recovery well before resetsAt
+      const quotaErrRegex = /quota|rate.?limit|exhausted|too many requests|429/i;
+      for (let i = 0; i < poolSteps.length; i++) {
+        const st = poolSteps[i];
+        if (st.status === "DONE" || !st.error || !quotaErrRegex.test(st.error)) continue;
+        // Find matching active [quota] hint around this error
+        const activeHint = hints5h.find((h) => h.tsMs <= st.tsMs && st.tsMs < h.resetsAtMs - 15 * 60000);
+        if (!activeHint) continue;
+        const recovery = poolSteps.slice(i + 1).find((ns) => ns.status === "DONE" && ns.tsMs < activeHint.resetsAtMs - 10 * 60000);
+        if (recovery) {
+          const wiped5h = sumPoolBetween(pool, recovery.tsMs - FIVE_HOURS_MS, recovery.tsMs - 1).cost;
+          pushReset({
+            id: `auto-recovery-${pool}-${recovery.tsMs}`,
+            pool,
+            scope: "5h",
+            atMs: recovery.tsMs,
+            source: "auto",
+            manual: false,
+            kind: "early_recovery",
+            reason: "触顶限流报错后在原重置时间前提前恢复可用",
+            wiped5hUsd: Number(wiped5h.toFixed(2)),
+            wiped7dUsd: 0,
+          });
+        }
+      }
+
+      detectedResets.sort((a, b) => a.atMs - b.atMs);
+      const latestReset5h = [...detectedResets].reverse().find((r) => r.scope === "5h" || r.scope === "both") || null;
+      const latestReset7d = [...detectedResets].reverse().find((r) => r.scope === "7d" || r.scope === "both") || null;
+
+      // Snap manual 7d anchor's approximate (hour-truncated) start to exact detected reset timestamp if within ±90m
+      let effectiveManual7dStart =
+        manual7dAnchor && Number.isFinite(manual7dAnchor.resetsAtMs)
+          ? manual7dAnchor.resetsAtMs - SEVEN_DAYS_MS
+          : null;
+      let effectiveManual7dReset =
+        manual7dAnchor && Number.isFinite(manual7dAnchor.resetsAtMs) ? manual7dAnchor.resetsAtMs : null;
+      if (effectiveManual7dStart !== null && latestReset7d && Math.abs(effectiveManual7dStart - latestReset7d.atMs) <= 90 * 60000) {
+        effectiveManual7dStart = latestReset7d.atMs;
+        effectiveManual7dReset = latestReset7d.atMs + SEVEN_DAYS_MS;
+      }
+
       let manualInferred5h = null;
       let manual5hUsedPct = 0;
       if (manual5hAnchor && Number.isFinite(manual5hAnchor.resetsAtMs) && Number.isFinite(manual5hAnchor.remainingPct)) {
         manual5hUsedPct = 100 - manual5hAnchor.remainingPct;
         if (manual5hUsedPct >= 5) {
           const obsMs = manual5hAnchor.observedAtMs || nowMs;
-          const agg = sumPoolBetween(pool, manual5hAnchor.resetsAtMs - FIVE_HOURS_MS, obsMs);
+          let winStart = manual5hAnchor.resetsAtMs - FIVE_HOURS_MS;
+          if (latestReset5h && latestReset5h.atMs > winStart && latestReset5h.atMs <= obsMs) {
+            winStart = latestReset5h.atMs;
+          }
+          const agg = sumPoolBetween(pool, winStart, obsMs);
           if (agg.cost >= 0.3) {
-            manualInferred5h = agg.cost / (manual5hUsedPct / 100);
+            const candidate = agg.cost / (manual5hUsedPct / 100);
+            // Protect against silent bonus-refill distortion (if candidate > 2.2x established anchor cap)
+            if (!med5h || candidate <= med5h * 2.2) {
+              manualInferred5h = candidate;
+            }
           }
         }
       }
@@ -792,17 +984,29 @@ export class PulseStore {
         seen7d.add(dedupKey);
         const usedPct = 100 - h.remainingPct;
         if (usedPct < 10) continue;
-        const agg = sumPoolBetween(pool, h.resetsAtMs - SEVEN_DAYS_MS, h.tsMs);
+        let winStart = h.resetsAtMs - SEVEN_DAYS_MS;
+        if (latestReset7d && latestReset7d.atMs > winStart && latestReset7d.atMs <= h.tsMs) {
+          winStart = latestReset7d.atMs;
+        }
+        const agg = sumPoolBetween(pool, winStart, h.tsMs);
         if (agg.cost >= 1) samples7d.push(agg.cost / (usedPct / 100));
       }
       let manualInferred7d = null;
-      if (manual7dAnchor && Number.isFinite(manual7dAnchor.resetsAtMs) && Number.isFinite(manual7dAnchor.remainingPct)) {
+      if (manual7dAnchor && Number.isFinite(effectiveManual7dStart) && Number.isFinite(manual7dAnchor.remainingPct)) {
         const usedPct = 100 - manual7dAnchor.remainingPct;
         if (usedPct >= 5) {
           const obsMs = manual7dAnchor.observedAtMs || nowMs;
-          const agg = sumPoolBetween(pool, manual7dAnchor.resetsAtMs - SEVEN_DAYS_MS, obsMs);
+          let winStart = effectiveManual7dStart;
+          if (latestReset7d && latestReset7d.atMs > winStart && latestReset7d.atMs <= obsMs) {
+            winStart = latestReset7d.atMs;
+          }
+          const agg = sumPoolBetween(pool, winStart, obsMs);
           if (agg.cost >= 1) {
-            manualInferred7d = agg.cost / (usedPct / 100);
+            const candidate = agg.cost / (usedPct / 100);
+            const expected7dMax = (med5h || (pool === "claude" ? 15 : 140)) * (pool === "claude" ? 5 : 8);
+            if (candidate <= expected7dMax) {
+              manualInferred7d = candidate;
+            }
           }
         }
       }
@@ -814,12 +1018,11 @@ export class PulseStore {
       const def5h = pool === "claude" ? DEFAULT_SETTINGS.budgets.claude5hUsd : DEFAULT_SETTINGS.budgets.gemini5hUsd;
       const def7d = pool === "claude" ? DEFAULT_SETTINGS.budgets.claude7dUsd : DEFAULT_SETTINGS.budgets.gemini7dUsd;
       const autoMode = this.settings.subscription?.autoQuota !== false;
-      const defaultWeeklyRatio = pool === "claude" ? 2.2 : 4.3;
+      const defaultWeeklyRatio = pool === "claude" ? 2.2 : 4.0;
 
       // Resolve 5h full pool USD
       let cap5hUsd = cfg5h;
       let cap5hSource = "manual";
-      const med5h = median(samples5h);
       if (autoMode) {
         if (manualInferred5h && manualInferred5h >= 2 && (manual5hUsedPct >= 25 || !med5h)) {
           cap5hUsd = roundNiceUsd(manualInferred5h);
@@ -858,12 +1061,15 @@ export class PulseStore {
         }
       }
 
-      // 3. Determine CURRENT active 5h window (pick most recent anchor between manual calibration and log notices)
+      // 3. Determine CURRENT active 5h window (pick most recent anchor between manual calibration, manual bonus reset, and log notices)
       const latestLog5h = hints5h.length ? hints5h.reduce((a, b) => (b.tsMs > a.tsMs ? b : a)) : null;
       const candidates5h = [];
       if (latestLog5h) candidates5h.push({ tsMs: latestLog5h.tsMs, resetsAtMs: latestLog5h.resetsAtMs, remainingPct: latestLog5h.remainingPct, origin: "log" });
       if (manual5hAnchor && Number.isFinite(manual5hAnchor.resetsAtMs)) {
         candidates5h.push({ tsMs: manual5hAnchor.observedAtMs || nowMs, resetsAtMs: manual5hAnchor.resetsAtMs, remainingPct: manual5hAnchor.remainingPct, origin: "calibrated" });
+      }
+      if (latestReset5h && latestReset5h.manual && nowMs - latestReset5h.atMs < FIVE_HOURS_MS) {
+        candidates5h.push({ tsMs: latestReset5h.atMs, resetsAtMs: latestReset5h.atMs + FIVE_HOURS_MS, remainingPct: 100, origin: "bonus_reset" });
       }
       const best5h = candidates5h.sort((a, b) => b.tsMs - a.tsMs)[0] || null;
 
@@ -895,6 +1101,9 @@ export class PulseStore {
           active5hResetAt = rolling.firstTs + FIVE_HOURS_MS;
         }
       }
+      if (latestReset5h && latestReset5h.atMs > active5hStart && latestReset5h.atMs <= nowMs) {
+        active5hStart = latestReset5h.atMs;
+      }
 
       const cur5h = sumPoolBetween(pool, active5hStart, nowMs);
       let rem5hPct;
@@ -913,8 +1122,11 @@ export class PulseStore {
       const latestLog7d = hints7d.length ? hints7d.reduce((a, b) => (b.tsMs > a.tsMs ? b : a)) : null;
       const candidates7d = [];
       if (latestLog7d) candidates7d.push({ tsMs: latestLog7d.tsMs, resetsAtMs: latestLog7d.resetsAtMs, remainingPct: latestLog7d.remainingPct, origin: "log" });
-      if (manual7dAnchor && Number.isFinite(manual7dAnchor.resetsAtMs)) {
-        candidates7d.push({ tsMs: manual7dAnchor.observedAtMs || nowMs, resetsAtMs: manual7dAnchor.resetsAtMs, remainingPct: manual7dAnchor.remainingPct, origin: "calibrated" });
+      if (manual7dAnchor && Number.isFinite(effectiveManual7dReset)) {
+        candidates7d.push({ tsMs: manual7dAnchor.observedAtMs || nowMs, resetsAtMs: effectiveManual7dReset, remainingPct: manual7dAnchor.remainingPct, origin: "calibrated" });
+      }
+      if (latestReset7d && latestReset7d.manual && nowMs - latestReset7d.atMs < SEVEN_DAYS_MS) {
+        candidates7d.push({ tsMs: latestReset7d.atMs, resetsAtMs: latestReset7d.atMs + SEVEN_DAYS_MS, remainingPct: 100, origin: "bonus_reset" });
       }
       const best7d = candidates7d.sort((a, b) => b.tsMs - a.tsMs)[0] || null;
 
@@ -937,12 +1149,18 @@ export class PulseStore {
             active7dResetAt = null;
           }
         }
+      } else if (latestReset7d && nowMs - latestReset7d.atMs < SEVEN_DAYS_MS) {
+        active7dStart = latestReset7d.atMs;
+        active7dResetAt = latestReset7d.atMs + SEVEN_DAYS_MS;
       } else {
         const rolling7 = sumPoolBetween(pool, nowMs - SEVEN_DAYS_MS, nowMs);
         if (rolling7.firstTs !== null) {
           active7dStart = rolling7.firstTs;
           active7dResetAt = rolling7.firstTs + SEVEN_DAYS_MS;
         }
+      }
+      if (latestReset7d && latestReset7d.atMs > active7dStart && latestReset7d.atMs <= nowMs) {
+        active7dStart = latestReset7d.atMs;
       }
 
       const cur7d = sumPoolBetween(pool, active7dStart, nowMs);
@@ -958,8 +1176,24 @@ export class PulseStore {
         rem7dPct = cap7dUsd > 0 ? Math.max(0, Number((100 - (cur7d.cost / cap7dUsd) * 100).toFixed(1))) : 0;
       }
 
-      const buildWin = (cur, capUsd, remUsd, remPct, resetAt, source, anchorCount, lastReset, activeOrigin) => {
-        const effectiveSource = activeOrigin === "calibrated" ? "calibrated" : source;
+      // Detector D: Live overflow without any recent [quota] low-quota notice => suspected live bonus reset
+      const recentLowQuota5h = hints5h.some((h) => nowMs - h.tsMs <= 30 * 60000);
+      const lastPoolStep = poolSteps.length ? poolSteps[poolSteps.length - 1] : null;
+      const suspectedLive5hReset =
+        (cap5hSource === "anchor" || cap5hSource === "calibrated") &&
+        cur5h.cost > cap5hUsd * 1.18 &&
+        !recentLowQuota5h &&
+        lastPoolStep?.status === "DONE" &&
+        nowMs - lastPoolStep.tsMs <= FIVE_HOURS_MS;
+
+      const active5hResetEv =
+        latestReset5h && Math.abs(latestReset5h.atMs - active5hStart) <= 10 * 60000 ? latestReset5h : null;
+      const active7dResetEv =
+        latestReset7d && Math.abs(latestReset7d.atMs - active7dStart) <= 10 * 60000 ? latestReset7d : null;
+
+      const buildWin = (cur, capUsd, remUsd, remPct, resetAt, source, anchorCount, lastReset, activeOrigin, bonusEv, suspectedBonus) => {
+        const effectiveSource =
+          activeOrigin === "bonus_reset" ? "bonus_reset" : activeOrigin === "calibrated" ? "calibrated" : source;
         const exceededUsd = remUsd > 0 ? 0 : Math.max(0, Number((cur.cost - capUsd).toFixed(2)));
         const usedPct = Number((100 - remPct).toFixed(1));
         return {
@@ -976,12 +1210,16 @@ export class PulseStore {
           source: effectiveSource,
           anchorCount,
           lastResetAt: lastReset || null,
+          bonusResetAt: bonusEv?.atMs || null,
+          bonusResetSource: bonusEv?.source || null,
+          suspectedBonusReset: Boolean(suspectedBonus),
         };
       };
 
       return {
-        win5h: buildWin(cur5h, cap5hUsd, rem5hUsd, rem5hPct, active5hResetAt, cap5hSource, hints5h.length, lastResetAt, active5hAnchor?.origin),
-        win7d: buildWin(cur7d, cap7dUsd, rem7dUsd, rem7dPct, active7dResetAt, cap7dSource, hints7d.length, null, active7dAnchor?.origin),
+        win5h: buildWin(cur5h, cap5hUsd, rem5hUsd, rem5hPct, active5hResetAt, cap5hSource, hints5h.length, lastResetAt, active5hAnchor?.origin, active5hResetEv, suspectedLive5hReset),
+        win7d: buildWin(cur7d, cap7dUsd, rem7dUsd, rem7dPct, active7dResetAt, cap7dSource, hints7d.length, null, active7dAnchor?.origin, active7dResetEv, false),
+        extraResets: detectedResets,
         totalAnchors: poolHints.length,
         lastResetAt,
       };
@@ -1008,12 +1246,18 @@ export class PulseStore {
       }
     }
 
+    const allExtraResets = [...gemini.extraResets, ...claude.extraResets].sort((a, b) => b.atMs - a.atMs);
+
     return {
       rollingWindows: {
         gemini5h: gemini.win5h,
         gemini7d: gemini.win7d,
         claude5h: claude.win5h,
         claude7d: claude.win7d,
+      },
+      extraResetsByPool: {
+        gemini: gemini.extraResets,
+        claude: claude.extraResets,
       },
       activeQuotaHints: [...activeHintsMap.values()],
       calibration: {
@@ -1027,6 +1271,8 @@ export class PulseStore {
         claude7dCapUsd: claude.win7d.budgetUsd,
         claude7dSource: claude.win7d.source,
         lastGeminiResetAt: gemini.lastResetAt,
+        extraResets: allExtraResets,
+        autoExtraResetCount: allExtraResets.filter((r) => r.source === "auto").length,
       },
     };
   }
@@ -1428,7 +1674,7 @@ export class PulseStore {
     const mixOut = allTimeTokTotal > 0 ? allTimeOutput / allTimeTokTotal : 0.01;
     const noCacheIn = mixIn + mixCache;
 
-    const buildPoolBundle = (poolKey, displayName, accentColor, win5h, win7d, featuredKeys) => {
+    const buildPoolBundle = (poolKey, displayName, accentColor, win5h, win7d, extraResets, featuredKeys) => {
       let poolCycleUsedUsd = 0;
       let poolCycleUsedTokens = 0;
       for (const [mk, cm] of cycleByModel.entries()) {
@@ -1439,8 +1685,30 @@ export class PulseStore {
         }
       }
 
-      const poolCycleQuotaUsd = roundNiceUsd(
-        Math.max(win7d.budgetUsd * (cycleTotalDays / 7), poolCycleUsedUsd / 0.85)
+      // Compute in-cycle gifted quota from official extra resets (without double-counting overlapping resets)
+      const inCycleResets = (extraResets || [])
+        .filter((r) => r.atMs >= cycleStartMs && r.atMs <= nowMs)
+        .sort((a, b) => a.atMs - b.atMs);
+      let bonusQuotaUsd = 0;
+      let prevBonusBoundary = cycleStartMs;
+      for (const r of inCycleResets) {
+        const lookbackMs = r.scope === "5h" ? FIVE_HOURS_MS : SEVEN_DAYS_MS;
+        const sliceStart = Math.max(prevBonusBoundary, r.atMs - lookbackMs);
+        let sliceCost = 0;
+        for (const st of all) {
+          if (st.pool !== poolKey) continue;
+          if (st.tsMs < sliceStart) continue;
+          if (st.tsMs >= r.atMs) break;
+          sliceCost += st.costUsd;
+        }
+        bonusQuotaUsd += sliceCost;
+        prevBonusBoundary = r.atMs;
+      }
+      bonusQuotaUsd = Number(bonusQuotaUsd.toFixed(2));
+
+      const baseCycleQuotaUsd = roundNiceUsd(win7d.budgetUsd * (cycleTotalDays / 7));
+      const poolCycleQuotaUsd = Number(
+        Math.max(baseCycleQuotaUsd + bonusQuotaUsd, roundNiceUsd(poolCycleUsedUsd / 0.85)).toFixed(2)
       );
       const poolCycleRemUsd = Math.max(0, Number((poolCycleQuotaUsd - poolCycleUsedUsd).toFixed(2)));
       const poolCycleExcUsd = Math.max(0, Number((poolCycleUsedUsd - poolCycleQuotaUsd).toFixed(2)));
@@ -1498,7 +1766,11 @@ export class PulseStore {
         color: accentColor,
         win5h,
         win7d,
+        extraResets: extraResets || [],
+        inCycleResetCount: inCycleResets.length,
         cycle: {
+          baseQuotaUsd: baseCycleQuotaUsd,
+          bonusQuotaUsd,
           quotaUsd: poolCycleQuotaUsd,
           usedUsd: Number(poolCycleUsedUsd.toFixed(2)),
           usedTokens: poolCycleUsedTokens,
@@ -1512,13 +1784,13 @@ export class PulseStore {
     };
 
     const quotaPools = {
-      gemini: buildPoolBundle("gemini", "Gemini 模型池", "#5B9BFF", rw.gemini5h, rw.gemini7d, [
+      gemini: buildPoolBundle("gemini", "Gemini 模型池", "#5B9BFF", rw.gemini5h, rw.gemini7d, quotaInference.extraResetsByPool.gemini, [
         "gemini-4-neon",
         "gemini-4-carbon",
         "gemini-4-hydrogen",
         "gemini-4-argon",
       ]),
-      claude: buildPoolBundle("claude", "Claude & GPT 模型池", "#A78BFA", rw.claude5h, rw.claude7d, [
+      claude: buildPoolBundle("claude", "Claude & GPT 模型池", "#A78BFA", rw.claude5h, rw.claude7d, quotaInference.extraResetsByPool.claude, [
         "claude-opus-5-5",
         "claude-sonnet-5-5",
         "gpt-oss-120b",

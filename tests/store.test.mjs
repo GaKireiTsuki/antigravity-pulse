@@ -274,3 +274,49 @@ test("View Usage manual calibration anchors infer independent Gemini and Claude/
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("auto-detects mid-session official extra reset from window restart & excludes normal 5h rollover", () => {
+  const { tmp, agyDir, dataDir } = makeTempEnv();
+  try {
+    const cid = "44444444-4444-4444-4444-444444444444";
+    const now = Date.now();
+    // Simulate continuous Gemini session starting 12h ago:
+    //   t_start = now - 12h
+    //   Spent $90 between t_start and t_reset (= t_start + 2h)
+    //   Official extra reset hits at t_reset (= now - 10h)
+    //   Spent $112 between t_reset and t_hint1 (= t_reset + 3h), triggering 20% remaining, resetsAt = t_reset + 5h
+    //   Normal 5h rollover at t_reset + 5h: spent $120, triggering 15% remaining, resetsAt = t_reset + 10h (NOT a second extra reset!)
+    const tStart = now - 12 * 3600000;
+    const tReset = tStart + 2 * 3600000;
+    const tResets1 = tReset + 5 * 3600000;
+    const tResets2 = tResets1 + 5 * 3600000;
+
+    // Gemini 4 Neon input $3/M => 30M input = $90
+    writeTranscript(agyDir, cid, [
+      { step_index: 1, type: "PLANNER_RESPONSE", status: "DONE", model: "gemini-4-neon-xhigh", input_tokens: 15_000_000, cache_read_tokens: 0, output_tokens: 0, created_at: new Date(tStart).toISOString() },
+      { step_index: 2, type: "PLANNER_RESPONSE", status: "DONE", model: "gemini-4-neon-xhigh", input_tokens: 15_000_000, cache_read_tokens: 0, output_tokens: 0, created_at: new Date(tReset - 60_000).toISOString() },
+      // Post-reset window 1 ($112 spent -> 20% remaining => cap $140)
+      { step_index: 3, type: "PLANNER_RESPONSE", status: "DONE", model: "gemini-4-neon-xhigh", input_tokens: 37_333_333, cache_read_tokens: 0, output_tokens: 0, created_at: new Date(tReset + 60 * 60000).toISOString() },
+      { step_index: 4, type: "SYSTEM_MESSAGE", content: `[quota] model gemini-4-neon-xhigh is low on quota (20% remaining, resets at ${new Date(tResets1).toISOString()})`, created_at: new Date(tReset + 3 * 3600000).toISOString() },
+      // Normal rollover window 2 ($119 spent -> 15% remaining => cap $140, aligned to tResets1!)
+      { step_index: 5, type: "PLANNER_RESPONSE", status: "DONE", model: "gemini-4-neon-xhigh", input_tokens: 39_666_667, cache_read_tokens: 0, output_tokens: 0, created_at: new Date(tResets1 + 60 * 60000).toISOString() },
+      { step_index: 6, type: "SYSTEM_MESSAGE", content: `[quota] model gemini-4-neon-xhigh is low on quota (15% remaining, resets at ${new Date(tResets2).toISOString()})`, created_at: new Date(tResets1 + 2 * 3600000).toISOString() },
+    ]);
+
+    const store = new PulseStore({ antigravityDir: agyDir, dataDir });
+    const snap = store.getOverviewSnapshot({ range: "all" });
+
+    assert.equal(snap.quotaPools.gemini.extraResets.length, 1);
+    const ev = snap.quotaPools.gemini.extraResets[0];
+    assert.equal(ev.source, "auto");
+    assert.equal(ev.kind, "window_restart");
+    assert.ok(Math.abs(ev.atMs - tReset) < 2000);
+    assert.equal(ev.wiped5hUsd, 90);
+    // Cycle bonus quota includes the $90 wiped inside the billing cycle
+    assert.ok(snap.quotaPools.gemini.cycle.bonusQuotaUsd >= 89);
+    // Claude pool unaffected
+    assert.equal(snap.quotaPools.claude.extraResets.length, 0);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

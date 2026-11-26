@@ -1129,6 +1129,7 @@ html.theme-ready .app-shell {
 .badge.warn { background: var(--amber-soft); color: var(--amber); }
 .badge.err { background: var(--red-soft); color: var(--red); }
 .badge.info { background: var(--accent-soft); color: var(--accent); }
+.badge.bonus { background: rgba(34, 211, 238, 0.14); color: var(--cyan); }
 .badge.neutral { background: var(--bg-pill); color: var(--fg-secondary); }
 
 /* Monitor Mode KPI Grid */
@@ -1574,6 +1575,40 @@ html.theme-ready .app-shell {
   color: var(--fg-primary);
   text-align: right;
   font-size: 12px;
+}
+.bonus-resets-bar {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bonus-resets-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--fg-secondary);
+}
+.bonus-reset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.bonus-reset-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  font-size: 11.5px;
 }
 
 /* Task Tree (Zero-overflow responsive) */

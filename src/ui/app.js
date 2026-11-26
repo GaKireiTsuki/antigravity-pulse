@@ -138,6 +138,7 @@ function fmtResetCountdown(w) {
 }
 
 function quotaSourceTag(src) {
+  if (src === "bonus_reset") return "额外重置";
   if (src === "calibrated") return "已校准";
   if (src === "anchor") return "锚点反推";
   if (src === "estimated") return "自动推算";
@@ -1150,7 +1151,7 @@ function renderOverviewTab(snap) {
           ? `<span style="color:var(--red)">超参考 +${esc(fmtCost(w.exceededUsd, s, 0))}</span>`
           : `剩 ${esc(fmtCost(w.remainingUsd, s, 0))} <span style="color:var(--fg-muted)">(${w.remainingPct}%)</span>`;
         const tip = esc(
-          `<strong>${poolData.name} · ${label}</strong><br/>来源: ${quotaSourceTag(w.source)}<br/>已用: ${fmtCost(w.costUsd, s)} (${fmtTokens(w.tokens, 1, s)})<br/>推算满池: ${fmtCost(w.budgetUsd, s)}<br/>${isOver ? `超参考: +${fmtCost(w.exceededUsd, s)}` : `剩余: ${fmtCost(w.remainingUsd, s)} (${w.remainingPct}%)`}<br/>${fmtResetCountdown(w)}`
+          `<strong>${poolData.name} · ${label}</strong><br/>来源: ${quotaSourceTag(w.source)}${w.bonusResetAt ? `<br/><strong style="color:var(--cyan)">起于官方额外重置: ${fmtTimeShort(w.bonusResetAt)}</strong>` : ""}<br/>${w.bonusResetAt ? "重置后已用" : "已用"}: ${fmtCost(w.costUsd, s)} (${fmtTokens(w.tokens, 1, s)})<br/>推算满池: ${fmtCost(w.budgetUsd, s)}<br/>${isOver ? `超参考: +${fmtCost(w.exceededUsd, s)}` : `剩余: ${fmtCost(w.remainingUsd, s)} (${w.remainingPct}%)`}<br/>${fmtResetCountdown(w)}`
         );
         return `
           <div data-tip="${tip}">
@@ -1162,7 +1163,7 @@ function renderOverviewTab(snap) {
               <div class="bar-fill ${barCls}" style="width:${fillPct}%"></div>
             </div>
             <div class="quota-pool-sub num">
-              <span>已用 ${fmtTokens(w.tokens, 1, s)} / ${esc(fmtCost(w.budgetUsd, s, 0))}</span>
+              <span>${w.bonusResetAt ? "重置后已用" : "已用"} ${fmtTokens(w.tokens, 1, s)} / ${esc(fmtCost(w.budgetUsd, s, 0))}</span>
               <span>${esc(fmtResetCountdown(w))}</span>
             </div>
           </div>
@@ -1212,6 +1213,26 @@ function renderOverviewTab(snap) {
         })
         .join("");
 
+      const extraList = poolData.extraResets || [];
+      const extraBadge = extraList.length
+        ? (() => {
+            const tipLines = extraList
+              .map(
+                (r) =>
+                  `<strong>${fmtTimeShort(r.atMs)}</strong> · ${r.source === "auto" ? "自动识别" : "手动记录"}<br/>${r.reason}${r.wiped7dUsd > 0 ? `<br/>周限清零释放: ${fmtCost(r.wiped7dUsd, s)}` : r.wiped5hUsd > 0 ? `<br/>5h 窗口释放: ${fmtCost(r.wiped5hUsd, s)}` : ""}`
+              )
+              .join("<br/><br/>");
+            return `<span class="badge bonus" data-tip="${esc(tipLines)}">额外重置 ×${extraList.length}</span>`;
+          })()
+        : w5.suspectedBonusReset
+          ? `<span class="badge bonus" data-tip="${esc("本轮 5h 实际消耗已明显超过历史满池但未触发低配额告警，疑似发生过官方额外重置或临时放宽。")}">疑似额外重置</span>`
+          : "";
+
+      const cycleBonusSub =
+        scope === "cycle" && cyc.bonusQuotaUsd > 0
+          ? `（含重置赠送 +${esc(fmtCost(cyc.bonusQuotaUsd, s, 0))}）`
+          : "";
+
       return `
         <div class="pool-panel">
           <div class="pool-panel-head">
@@ -1219,6 +1240,7 @@ function renderOverviewTab(snap) {
               <span class="model-dot" style="background:${poolData.color};width:9px;height:9px"></span>
               <span>${esc(poolData.name)}</span>
               <span class="badge neutral">${quotaSourceTag(focusSource)}</span>
+              ${extraBadge}
             </div>
             <span class="badge ${tone} num">${focusExcUsd > 0 ? "超参考" : `${scopeLabel} ${focusRemPct}%`}</span>
           </div>
@@ -1228,7 +1250,7 @@ function renderOverviewTab(snap) {
               <span class="pool-hero-val ${tone} num">${focusExcUsd > 0 ? `已超 ${esc(fmtCost(focusExcUsd, s))}` : esc(fmtCost(focusRemUsd, s))}</span>
               ${focusExcUsd <= 0 && fmtCostSub(focusRemUsd, s) ? `<span class="kpi-sub-val num">${esc(fmtCostSub(focusRemUsd, s))}</span>` : ""}
             </div>
-            <span class="num" style="font-size:11.5px;color:var(--fg-muted)">已用 ${esc(fmtCost(focusUsedUsd, s))} / ${esc(fmtCost(focusCapUsd, s, 0))}</span>
+            <span class="num" style="font-size:11.5px;color:var(--fg-muted)">已用 ${esc(fmtCost(focusUsedUsd, s))} / ${esc(fmtCost(focusCapUsd, s, 0))}${cycleBonusSub}</span>
           </div>
 
           <div class="pool-bars">
@@ -1259,8 +1281,16 @@ function renderOverviewTab(snap) {
         </div>`
       : "";
 
+    const extraSummary = (cal?.extraResets || []).length
+      ? (() => {
+          const latest = cal.extraResets[0];
+          const wipedStr = latest.wiped7dUsd > 0 ? `周限清零 ${fmtCost(latest.wiped7dUsd, s)}` : `5h 清零 ${fmtCost(latest.wiped5hUsd, s)}`;
+          return ` · 已${latest.source === "auto" ? "自动识别" : "记录"} ${cal.extraResets.length} 次官方额外重置（最近 ${fmtTimeShort(latest.atMs)}，${wipedStr}）`;
+        })()
+      : "";
+
     const calNote = `<div style="margin-top:9px;font-size:11.5px;color:var(--fg-muted)">
-      Gemini 池（5h ≈ ${fmtCost(cal.gemini5hCapUsd, s, 0)} · 周限 ≈ ${fmtCost(cal.gemini7dCapUsd, s, 0)}）与 Claude &amp; GPT 池（5h ≈ ${fmtCost(cal.claude5hCapUsd, s, 0)} · 周限 ≈ ${fmtCost(cal.claude7dCapUsd, s, 0)}）独立核算${cal?.totalAnchors > 0 ? ` · 已融合 ${cal.totalAnchors} 条日志官方锚点` : ""}；点击右上角「校准」可随时同步官方 View Usage 百分比。
+      Gemini 池（5h ≈ ${fmtCost(cal.gemini5hCapUsd, s, 0)} · 周限 ≈ ${fmtCost(cal.gemini7dCapUsd, s, 0)}）与 Claude &amp; GPT 池（5h ≈ ${fmtCost(cal.claude5hCapUsd, s, 0)} · 周限 ≈ ${fmtCost(cal.claude7dCapUsd, s, 0)}）独立核算${cal?.totalAnchors > 0 ? ` · 已融合 ${cal.totalAnchors} 条日志官方锚点` : ""}${extraSummary}；点击右上角「校准」可随时同步 View Usage 或补录额外重置。
     </div>`;
 
     subQuotaCard = `
@@ -1822,6 +1852,39 @@ function renderPricingTab(snap) {
           </div>
         </div>
       </div>
+      <div class="bonus-resets-bar">
+        <div class="bonus-resets-head">
+          <span>官方额外重置记录（系统已自动识别日志中的中途窗口重启，遇静默回满也可手动补录）</span>
+          <div class="filter-group">
+            <button class="btn sm" data-action="record-bonus-reset" data-val="gemini">+ 记一次 Gemini 额外重置</button>
+            <button class="btn sm" data-action="record-bonus-reset" data-val="claude">+ 记一次 Claude/GPT 额外重置</button>
+          </div>
+        </div>
+        ${
+          (snap.quotaCalibration?.extraResets || []).length
+            ? `<div class="bonus-reset-list">
+                ${snap.quotaCalibration.extraResets
+                  .map(
+                    (r) => `
+                  <div class="bonus-reset-item">
+                    <span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">
+                      <span class="badge ${r.source === "auto" ? "bonus" : "neutral"}">${r.source === "auto" ? "自动识别" : "手动记录"}</span>
+                      <strong>${r.pool === "claude" ? "Claude & GPT 池" : "Gemini 池"}</strong>
+                      <span class="num" style="color:var(--fg-muted)">${fmtTimeShort(r.atMs)}</span>
+                      <span style="color:var(--fg-secondary)">${esc(r.reason)}</span>
+                    </span>
+                    <span style="display:inline-flex;align-items:center;gap:8px">
+                      <span class="num" style="color:var(--green)">${r.wiped7dUsd > 0 ? `周限释放 ${esc(fmtCost(r.wiped7dUsd, s))}` : r.wiped5hUsd > 0 ? `5h 释放 ${esc(fmtCost(r.wiped5hUsd, s))}` : "满血恢复"}</span>
+                      ${r.manual ? `<button class="btn sm danger" data-action="delete-bonus-reset" data-val="${esc(r.id)}">撤销</button>` : ""}
+                    </span>
+                  </div>
+                `
+                  )
+                  .join("")}
+              </div>`
+            : ""
+        }
+      </div>
     </div>
 
     <div class="card">
@@ -2375,23 +2438,26 @@ function initEvents() {
       render({ animate: false });
     } else if (action === "save-anchors") {
       const now = Date.now();
-      const buildAnchor = (pctId, dId, hId, mId) => {
-        const pct = Number(document.getElementById(pctId)?.value);
+      const buildAnchor = (pctId, dId, hId, mId, fallbackMs) => {
+        const rawPct = document.getElementById(pctId)?.value;
+        if (rawPct === "" || rawPct === undefined) return null;
+        const pct = Number(rawPct);
         if (!Number.isFinite(pct) || pct < 0 || pct > 100) return null;
         const d = dId ? Number(document.getElementById(dId)?.value || 0) : 0;
         const h = hId ? Number(document.getElementById(hId)?.value || 0) : 0;
         const m = mId ? Number(document.getElementById(mId)?.value || 0) : 0;
         const ms = ((d * 24 + h) * 60 + m) * 60000;
-        if (ms <= 0) return null;
-        return { remainingPct: pct, resetsAtMs: now + ms, observedAtMs: now };
+        const effMs = ms > 0 ? ms : pct >= 100 ? fallbackMs : 0;
+        if (effMs <= 0) return null;
+        return { remainingPct: pct, resetsAtMs: now + effMs, observedAtMs: now };
       };
       await saveSettings(
         {
           quotaAnchors: {
-            gemini7d: buildAnchor("cal-g7-pct", "cal-g7-d", "cal-g7-h", null),
-            gemini5h: buildAnchor("cal-g5-pct", null, "cal-g5-h", "cal-g5-m"),
-            claude7d: buildAnchor("cal-c7-pct", "cal-c7-d", "cal-c7-h", null),
-            claude5h: buildAnchor("cal-c5-pct", null, "cal-c5-h", "cal-c5-m"),
+            gemini7d: buildAnchor("cal-g7-pct", "cal-g7-d", "cal-g7-h", null, 7 * 86400000),
+            gemini5h: buildAnchor("cal-g5-pct", null, "cal-g5-h", "cal-g5-m", 5 * 3600000),
+            claude7d: buildAnchor("cal-c7-pct", "cal-c7-d", "cal-c7-h", null, 7 * 86400000),
+            claude5h: buildAnchor("cal-c5-pct", null, "cal-c5-h", "cal-c5-m", 5 * 3600000),
           },
         },
         "已同步双池官方校准锚点并重新反推额度"
@@ -2401,6 +2467,30 @@ function initEvents() {
         { quotaAnchors: { gemini5h: null, gemini7d: null, claude5h: null, claude7d: null } },
         "已清除手动校准，恢复日志自动推算"
       );
+    } else if (action === "record-bonus-reset") {
+      const existing = Array.isArray(state.snapshot?.settings?.bonusResets)
+        ? state.snapshot.settings.bonusResets
+        : [];
+      const next = [
+        ...existing,
+        {
+          id: `manual-${val}-${Date.now()}`,
+          pool: val === "claude" ? "claude" : "gemini",
+          scope: "both",
+          atMs: Date.now(),
+          note: "手动记录官方额外重置（周限 + 5h 满血恢复）",
+        },
+      ];
+      await saveSettings(
+        { bonusResets: next },
+        `已记录一次 ${val === "claude" ? "Claude & GPT" : "Gemini"} 官方额外重置`
+      );
+    } else if (action === "delete-bonus-reset") {
+      const existing = Array.isArray(state.snapshot?.settings?.bonusResets)
+        ? state.snapshot.settings.bonusResets
+        : [];
+      const next = existing.filter((r) => r.id !== val);
+      await saveSettings({ bonusResets: next }, "已撤销该条额外重置记录");
     } else if (action === "sort-model") {
       if (state.modelSort.key === val) {
         state.modelSort.dir = state.modelSort.dir === "desc" ? "asc" : "desc";
